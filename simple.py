@@ -24,6 +24,9 @@ specs = {'n_cylinders': 5,
          # as 0
          }
 
+assert specs['n_cylinders'] > 1
+assert all(specs[key] > 0 for key in specs if key not in ('n_cylinders', 'x0', 'y0', 'z0'))
+
 root = geo_from_template('simple.geo', specs, 'test.geo')
 mesh_file = generate_mesh(root, scale=1)
 # Dump to paraview for inspection
