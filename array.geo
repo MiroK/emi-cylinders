@@ -24,6 +24,7 @@ size_b = 0.3;
 // shared by 2 cylinders. The label for the cylinder is (volume label +
 // n_cylinders). The outer volume, i.e. bounding box - cylinder union is tagged
 // as 0
+//! Cut here
 
 // We draw the first guy by hand
 // Joint
@@ -144,11 +145,117 @@ Ruled Surface(68) = {67};
 Line Loop(69) = {62, -38, -59, 9};
 Ruled Surface(70) = {69};
 // And the volume
-Surface Loop(71) = {43, 56, 54, 46, 64, 17, 70, 68, 66, 23, 29, 27, 25, 14, 52, 58};
+Surface Loop(71) = {14, 56, 54, 46, 64, 17, 70, 68, 66, 23, 29, 27, 25, 52, 58, 43};
 Volume(72) = {71};
-// We can mark stuff now
-Physical Volume(1) = {72};
-Physical Surface(1) = {56, 54, 46, 64, 17, 70, 68, 66, 23, 29, 27, 25, 14, 52, 58};
-Physical Surface(1+n_cylinders) = {43};
 
-Out = Translate {0, 0, H+h} { Duplicata { Volume{72}; } };
+// Mark the volume of the cylinder here. Surfaces will follow
+Physical Volume(1) = {72};
+Physical Surface(1) = {56, 54, 46, 64, 17, 70, 68, 66, 23, 29, 27, 25, 52, 58};
+// All but the first tail 
+cylinder_bbox[] = {14, 56, 54, 46, 64, 17, 70, 68, 66, 23, 29, 27, 25, 52, 58};
+
+last_volume = 72;
+tail = 43;
+Physical Surface(n_cylinders+1) = {tail};
+For i In {2:n_cylinders}
+    new_volume[] = Translate {0, 0, H+h} { Duplicata { Volume{last_volume}; } };
+    last_volume = new_volume[0];
+
+    b() = Boundary{ Volume{last_volume}; } ;
+    // The 'middle' surfaces are marked 
+    cylinder_shell[] = {};
+    For j In {1:14}
+        cylinder_shell[] += {b[j]};
+    EndFor
+    tail = b[15];
+
+    cylinder_bbox[] += cylinder_shell[];
+
+    If(i < n_cylinders)
+        Physical Surface(i+n_cylinders) = {tail};
+    EndIf    
+
+    Physical Surface(i) = {cylinder_shell[]};
+    Physical Volume(i) = {last_volume};
+EndFor
+
+Physical Surface(1) += {14};
+Physical Surface(n_cylinders) += {tail};
+
+// Finally collect the bounding surfaces of the cylinder
+cylinder_bbox[] += {tail}; 
+
+bbox_surfaces[] = {};
+///////////////////////////////////////////////////////////////////////////////
+// Bounding box
+///////////////////////////////////////////////////////////////////////////////
+// Bottom corner
+p = newp;
+dx = dx + R;
+dy = dy + R;
+Point(p) =   {x0+dx, y0+dy, z0-H/2-h/2-dz, size_b};
+Point(p+1) = {x0+dx, y0-dy, z0-H/2-h/2-dz, size_b};
+Point(p+2) = {x0-dx, y0-dy, z0-H/2-h/2-dz, size_b};
+Point(p+3) = {x0-dx, y0+dy, z0-H/2-h/2-dz, size_b};
+// Bottom plane
+l = newl;
+Line(l) = {p, p+1};
+Line(l+1) = {p+1, p+2};
+Line(l+2) = {p+2, p+3};
+Line(l+3) = {p+3, p};
+s = news;
+Line Loop(s) = {l, l+1, l+2, l+3};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+// Top corner
+P = newp;
+up = n_cylinders*(H+h) + dz;
+Point(P) =   {x0+dx, y0+dy, z0-h/2-H/2+up, size_b};
+Point(P+1) = {x0+dx, y0-dy, z0-h/2-H/2+up, size_b};
+Point(P+2) = {x0-dx, y0-dy, z0-h/2-H/2+up, size_b};
+Point(P+3) = {x0-dx, y0+dy, z0-h/2-H/2+up, size_b};
+// Top plane;
+L = newl;
+Line(L) = {P, P+1};
+Line(L+1) = {P+1, P+2};
+Line(L+2) = {P+2, P+3};
+Line(L+3) = {P+3, P};
+s = news;
+Line Loop(s) = {L, L+1, L+2, L+3};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+// Side surfaces
+ls = newl;
+Line(ls) = {p, P};
+Line(ls+1) = {p+1, P+1};
+Line(ls+2) = {p+2, P+2};
+Line(ls+3) = {p+3, P+3};
+
+s = news;
+Line Loop(s) = {L, -(ls+1), -l, ls};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+s = news;
+Line Loop(s) = {L+1, -(ls+2), -(l+1), (ls+1)};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+s = news;
+Line Loop(s) = {L+2, -(ls+3), -(l+2), (ls+2)};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+s = news;
+Line Loop(s) = {L+3, -(ls), -(l+3), (ls+3)};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+// Outer = bbox - cylinders
+v = newv;
+Surface Loop(v) = {bbox_surfaces[]};
+Surface Loop(v+1) = {cylinder_bbox[]};
+Volume(v+2) = {v, v+1};
+Physical Volume(0) = {v+2};

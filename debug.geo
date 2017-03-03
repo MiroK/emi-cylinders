@@ -36,7 +36,7 @@ Surface Loop(25) = {22, 20, 18, 16, 14, 24};
 Volume(26) = {25};
 
 Out[] = Translate {0, 0, 2} {
-  Duplicata { Volume{26}; }
+  Duplicata { Surface{22, 20, 18, 16, 14, 24};}
 };
 
 Printf("%g", Out[0]);
