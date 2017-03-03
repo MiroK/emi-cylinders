@@ -146,9 +146,30 @@ Ruled Surface(70) = {69};
 // And the volume
 Surface Loop(71) = {43, 56, 54, 46, 64, 17, 70, 68, 66, 23, 29, 27, 25, 14, 52, 58};
 Volume(72) = {71};
+
 // We can mark stuff now
 Physical Volume(1) = {72};
 Physical Surface(1) = {56, 54, 46, 64, 17, 70, 68, 66, 23, 29, 27, 25, 14, 52, 58};
 Physical Surface(1+n_cylinders) = {43};
 
-Out = Translate {0, 0, H+h} { Duplicata { Volume{72}; } };
+last_cylinder[] = {14, 56, 54, 46, 64, 17, 70, 68, 66, 23, 29, 27, 25, 52, 58, 43};
+tip = 14;
+tail = 43;
+For i In {1:n_cylinders}
+    out[] = Translate {0, 0, H+h} { Duplicata { Surface{last_cylinder[]}; } };
+
+    tip = tail;
+    tail = out[14];
+    out_filter[] = {tip};
+    For j In {1:14}
+        out_filter[] += {out[j]};
+    EndFor
+
+    sl = newl;
+    Surface Loop(sl) = out_filter[];
+    v = newv;
+    Volume(v) = {sl};
+    Physical Volume(i+1) = {v};
+
+    last_cylinder[] = out_filter[];
+EndFor
