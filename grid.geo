@@ -1,4 +1,4 @@
-z_cylinders = 4;
+z_cylinders = 3;
 y_cylinders = 4;
 // The height of each cylinder is H with char mesh size size_c
 R = 0.8;
@@ -23,11 +23,13 @@ dx = 0.2;
 dy = 0.2;
 dz = 0.2;
 size_b = 0.3;
-// Each cylinder volume gets number 1, ..., n_cylinders. These markers are also
-// inherited by surfaces that bound the cylinder except the surface that is
-// shared by 2 cylinders. The label for the cylinder is (volume label +
-// n_cylinders). The outer volume, i.e. bounding box - cylinder union is tagged
-// as 0
+// The cylinders are numbered (the volume) starting from on first growing in 
+// y-direction then in z-direction. The volume id determines also id of all the
+// surfaces that are not shared. For the shared surfaces the y-shared surface is
+// volume_id + (z_cylinders*y_cylinders). In z direction this is 
+// volume_id + 2*(z_cylinders*y_cylinders). Note that in this policy it is the first
+// cylinder which hits the surface that gets to name it.
+// The outer volume, i.e. bounding box - cylinder union is tagged as 0
 //! Cut here
 
 // The first cylinder has center at x0, y0, z0
@@ -67,9 +69,9 @@ Point(11) = {0, R, H/2, size_R};
 Point(12) = {R, 0, 0, size_R};
 Point(13) = {q, Sqrt(R^2-q^2), 0, size_R};
 
-Point(14) = {0, R+l, 0, size_l};
-Point(15) = {0, R+l, t, size_l};
-Point(16) = {t, R+l, 0, size_l};
+Point(14) = {0, R+l/2, 0, size_l};
+Point(15) = {0, R+l/2, t, size_l};
+Point(16) = {t, R+l/2, 0, size_l};
 Point(17) = {0, R+(q-t), t, size_l};
 
 Point(18) = {0, 0, 0, size_R};
@@ -180,3 +182,166 @@ sl = newsl;
 Surface Loop(sl) = cylinder[];
 v = newv;
 Volume(v) = {sl};
+pv = 1;
+Physical Volume(pv) = {v};
+Physical Surface(pv) = root[]; // Don't forget to add caps
+Physical Surface(pv) += {328, 326, 324, 322}; // bottom
+Physical Surface(pv) += {314}; // left
+// Finally claim the shared y
+n_cylinders = y_cylinders*z_cylinders;
+Physical Surface(pv+n_cylinders) = {316};
+// And z shared
+Physical Surface(pv+2*n_cylinders) = {340, 338, 336, 334};
+
+// Collect cylinders that we have defined
+all_cylinders[] = {v};
+
+parent = v;
+For i In {1:z_cylinders}
+  // Mirror in y
+  last_volume = parent;
+  For j In {2:y_cylinders}
+    new_volume[] = Translate {0, 2*(R+l/2), 0} { Duplicata { Volume{last_volume}; } };
+
+    last_volume = new_volume[0];
+    all_cylinders[] += {last_volume};
+    pv += 1;
+    Physical Volume(pv) = {last_volume};
+
+    // Extract shell
+    b() = Boundary{ Volume{last_volume}; } ;
+    cylinder_shell[] = {};
+    For k In {10:42}
+        cylinder_shell[] += {b[k]};
+    EndFor
+    Physical Surface(pv) = cylinder_shell[];
+    // Bottom claims
+    If(i==1)
+      Physical Surface(pv) += {b[1], b[2], b[3], b[4]};
+    EndIf
+    // Top claims
+    If(i==z_cylinders)
+       Physical Surface(pv) += {b[6], b[7], b[8], b[9]};
+    EndIf
+    // Right claims
+    If(j==y_cylinders)
+        Physical Surface(pv) += {b[5]};
+    EndIf
+    // Claim y-shared
+    If(j < y_cylinders)
+        Physical Surface(pv+n_cylinders) = {b[5]};
+    EndIf
+    // Claim z-shared
+    If(i < y_cylinders)
+        Physical Surface(pv+2*n_cylinders) = {b[6], b[7], b[8], b[9]};
+    EndIf
+  EndFor 
+
+  If(i < z_cylinders)
+    new_volume[] = Translate {0, 0, H+h} { Duplicata { Volume{parent}; } };
+    parent = new_volume[0];
+    pv += 1;
+    Physical Volume(pv) = {parent};
+    all_cylinders[] += {parent};
+
+    // Extract shell
+    b() = Boundary{ Volume{parent}; } ;
+    cylinder_shell[] = {};
+    For k In {10:42}
+        cylinder_shell[] += {b[k]};
+    EndFor
+    Physical Surface(pv) = cylinder_shell[];
+    // Top claims
+    If((i+1)==z_cylinders)
+       Physical Surface(pv) += {b[6], b[7], b[8], b[9]};
+    EndIf
+    // Left claims
+    Physical Surface(pv) += {b[0]};
+    // Claim y-shared
+    Physical Surface(pv+n_cylinders) = {b[5]};
+    // Claim z-shared
+    If(i < y_cylinders)
+        Physical Surface(pv+2*n_cylinders) = {b[6], b[7], b[8], b[9]};
+    EndIf
+  EndIf
+
+EndFor
+
+// Get the bounding surfaces for cylinder
+bbox_cylinders = CombinedBoundary{ Volume{all_cylinders[]}; } ;
+
+bbox_surfaces[] = {};
+///////////////////////////////////////////////////////////////////////////////
+// Bounding box
+///////////////////////////////////////////////////////////////////////////////
+// Bottom corner
+p = newp;
+dx = dx + R+l/2;
+ddy = dy + R+l/2;
+ddY = dy + 2*(R+l/2)*(y_cylinders-1) + R+l/2;
+Point(p) =   {x0+dx, y0+ddY, z0-H/2-h/2-dz, size_b};
+Point(p+1) = {x0+dx, y0-ddy, z0-H/2-h/2-dz, size_b};
+Point(p+2) = {x0-dx, y0-ddy, z0-H/2-h/2-dz, size_b};
+Point(p+3) = {x0-dx, y0+ddY, z0-H/2-h/2-dz, size_b};
+// Bottom plane
+l = newl;
+Line(l) = {p, p+1};
+Line(l+1) = {p+1, p+2};
+Line(l+2) = {p+2, p+3};
+Line(l+3) = {p+3, p};
+s = news;
+Line Loop(s) = {l, l+1, l+2, l+3};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+dz = dz + (H+h)*(z_cylinders-1) + H/2 + h/2;
+// Top corner
+P = newp;
+Point(P) =   {x0+dx, y0+ddY, z0+dz, size_b};
+Point(P+1) = {x0+dx, y0-ddy, z0+dz, size_b};
+Point(P+2) = {x0-dx, y0-ddy, z0+dz, size_b};
+Point(P+3) = {x0-dx, y0+ddY, z0+dz, size_b};
+// Top plane;
+L = newl;
+Line(L) = {P, P+1};
+Line(L+1) = {P+1, P+2};
+Line(L+2) = {P+2, P+3};
+Line(L+3) = {P+3, P};
+s = news;
+Line Loop(s) = {L, L+1, L+2, L+3};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+//
+// Side surfaces
+ls = newl;
+Line(ls) = {p, P};
+Line(ls+1) = {p+1, P+1};
+Line(ls+2) = {p+2, P+2};
+Line(ls+3) = {p+3, P+3};
+
+s = news;
+Line Loop(s) = {L, -(ls+1), -l, ls};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+s = news;
+Line Loop(s) = {L+1, -(ls+2), -(l+1), (ls+1)};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+s = news;
+Line Loop(s) = {L+2, -(ls+3), -(l+2), (ls+2)};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+s = news;
+Line Loop(s) = {L+3, -(ls), -(l+3), (ls+3)};
+Plane Surface(s+1) = {s};
+bbox_surfaces[] += {s+1};
+
+// Outer = bbox - cylinders
+//v = newv;
+Surface Loop(v) = {bbox_surfaces[]};
+Surface Loop(v+1) = {bbox_cylinders[]};
+Volume(v+2) = {v, v+1};
+Physical Volume(0) = {v+2};
