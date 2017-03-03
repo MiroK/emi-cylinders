@@ -1,5 +1,5 @@
-z_cylinders = 3;
-y_cylinders = 4;
+z_cylinders = 4;
+y_cylinders = 3;
 // The height of each cylinder is H with char mesh size size_c
 R = 0.8;
 H = 1.5;
@@ -14,7 +14,7 @@ l = 0.5;
 size_l = 0.2;
 // Note that to make the transition of the joint to the cylindrical surface
 // there is a weld which results in effective radius of q > t. Below q is the
-// scaling factor so that q[radius] := q*t
+// scaling factor so that q[radius] is q*t
 q = 1.1;
 // The cylinders are enclosed in a bbox which leaves dx, dy gaps around the
 // square that bounds the cylinder crossection. In z direction the gap is dz.
@@ -211,7 +211,7 @@ For i In {1:z_cylinders}
     // Extract shell
     b() = Boundary{ Volume{last_volume}; } ;
     cylinder_shell[] = {};
-    For k In {10:42}
+    For k In {10:73}
         cylinder_shell[] += {b[k]};
     EndFor
     Physical Surface(pv) = cylinder_shell[];
@@ -220,7 +220,7 @@ For i In {1:z_cylinders}
       Physical Surface(pv) += {b[1], b[2], b[3], b[4]};
     EndIf
     // Top claims
-    If(i==z_cylinders)
+    If(i == z_cylinders)
        Physical Surface(pv) += {b[6], b[7], b[8], b[9]};
     EndIf
     // Right claims
@@ -232,7 +232,7 @@ For i In {1:z_cylinders}
         Physical Surface(pv+n_cylinders) = {b[5]};
     EndIf
     // Claim z-shared
-    If(i < y_cylinders)
+    If(i < z_cylinders)
         Physical Surface(pv+2*n_cylinders) = {b[6], b[7], b[8], b[9]};
     EndIf
   EndFor 
@@ -247,20 +247,19 @@ For i In {1:z_cylinders}
     // Extract shell
     b() = Boundary{ Volume{parent}; } ;
     cylinder_shell[] = {};
-    For k In {10:42}
+    For k In {10:73}
         cylinder_shell[] += {b[k]};
     EndFor
     Physical Surface(pv) = cylinder_shell[];
-    // Top claims
-    If((i+1)==z_cylinders)
-       Physical Surface(pv) += {b[6], b[7], b[8], b[9]};
-    EndIf
     // Left claims
     Physical Surface(pv) += {b[0]};
     // Claim y-shared
     Physical Surface(pv+n_cylinders) = {b[5]};
-    // Claim z-shared
-    If(i < y_cylinders)
+    // Top claims
+    If((i+1)==z_cylinders)
+       Physical Surface(pv) += {b[6], b[7], b[8], b[9]};
+    EndIf
+    If((i+1)<z_cylinders)
         Physical Surface(pv+2*n_cylinders) = {b[6], b[7], b[8], b[9]};
     EndIf
   EndIf
