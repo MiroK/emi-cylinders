@@ -1,6 +1,12 @@
 from driver import geo_from_template, generate_mesh, as_pvd
 from dolfin import Mesh, HDF5File
 
+# NOTE: here the cylinders look like AAA batteries which are coupled in z and y
+# directions to create a sheate. The coupling is respectively thought top and
+# side surface which leads to a natural anisotropy in the system. For a sheat of
+# 'watch batteries' where the coupling is via sides/curved surfaces thus
+# resulting in an isotropic sheat see grid-iso
+
 specs = {'z_cylinders': 3,
          'y_cylinders': 4,
          # The height of each cylinder is H, radius is R with char mesh size size_R
