@@ -38,6 +38,9 @@ size_b = 0.3;
 x0 = 0;
 y0 = 0;
 z0 = 0;
+// Mesh quality/size parameters
+Mesh.Smoothing = 4;
+Mesh.SmoothNormals = 4;
 
 // Let's compute stuff for the y-joint
 q = q*t;            // Control the curvature of the joint part
