@@ -1,11 +1,8 @@
-module EmiDraw
-
-export Point, Shape, Circle, Ellipse, Rectangle, Square, ClosedPolygon, BoundingBox
-export Canvas, set_bbox!
-
-# ----------------------------------------------------------------------------------------
-
 import Base: ==, abs, dot, -, +, cross, first, last, isempty, *
+
+#########################
+# Drawing simple shapes #
+#########################
 
 """Point in R^2"""
 immutable Point
@@ -238,7 +235,9 @@ function set_bbox!(padx::Real, pady::Real)
     canvas.bbox = BoundingBox(ll, ur)
 end
 
-# ----------------------------------------------------------------------------------------
+#############################
+# Drawing composites/tissue #
+#############################
 
 """Make nxm grid of shapes which are separated by given spacing"""
 function fill_canvas(shape::Shape, counts::Tuple{Int, Int}, spacing::Tuple{Real, Real})
@@ -265,4 +264,4 @@ function fill_canvas(shape::Shape, counts::Tuple{Int, Int}, spacing::Tuple{Real,
     Canvas(shapes)
 end
 
-end # module EmiDraw
+# FIXME: concentric circle, concentric triangles, tiling
