@@ -1,58 +1,143 @@
-# Flat -------------------------------------------------------------------------------
-function geo_code(shape::Square, start::Int=1, tag::Int=0)
+# Convert to primitives  -----------------------------------------------------------------
+function primitives(shape::BoundingBox)
+    dx = shape.ur.x - shape.ll.x
+    dy = shape.ur.y - shape.ll.y
+
+    points = [shape.ll, shape.ll + Point(dx, 0), shape.ur, shape.ll + Point(0, dy)]
+    primitives(ClosedPolygon(points))
+end
+
+function primitives(shape::Square)
     points = [shape.ll,
               shape.ll + Point(shape.size, 0),
               shape.ll + Point(shape.size, shape.size),
               shape.ll + Point(0, shape.size)]
-    geo_code(ClosedPolygon(points), start, tag)
+    primitives(ClosedPolygon(points))
 end
 
-function geo_code(shape::Rectangle, start::Int=1, tag::Int=0)
+function primitives(shape::Rectangle)
     points = [shape.ll,
               shape.ll + Point(shape.size_x, 0),
               shape.ll + Point(shape.size_x, shape.size_y),
               shape.ll + Point(0, shape.size_y)]
-    geo_code(ClosedPolygon(points), start, tag::Int)
+    primitives(ClosedPolygon(points))
 end
 
-"""Convert the polygon to code in gmsh scripting language"""
-function geo_code(shape::ClosedPolygon, start::Int=1, tag::Int=0)
-    # NOTE: start is a counter for gmsh entities. Every shape we convert is a closed
-    # loop and we might want to label the created loop(surface) as well as its boundary
-
+# Physical points, and curves defined in terms of LOCAL point numbering
+function primitives(shape::ClosedPolygon)
     # Point part
     points = shape.points
+
     npoints = length(points)
-    pindices = start:(start+npoints-1)
-
-    points = ["Point($(index)) = {$(point.x), $(point.y), 0., SIZE};"
-               for (index, point) in zip(pindices, points)]
-    points = join(points, "\n")
-
-    # Line part
-    start = last(pindices) + 1
+    pindices = 1:npoints  # Local
     lines = [zip(pindices[2:end], pindices[1:end-1])..., (first(pindices), last(pindices))]
-    nlines = length(lines)
-    lindices = start:(start+nlines-1)
+    lines = Dict(:Line => lines)
 
-    lines = ["Line($(index)) = {$(first(line)), $(last(line))};"
-               for (index, line) in zip(lindices, lines)]
-    lines = join(lines, "\n")
-
-    # The loop
-    start = last(lindices) + 1
-    loop = "Line Loop($(start)) = {$(join(map(x-> "$(x)", lindices), ", "))};"
-
-    # Physical groups
-    physical_surface = "Physical Surface($(tag)) = {$(start)};"
-    physical_line = "Physical Line($(tag)) = {$(join(map(x-> "$(x)", lindices), ", "))};"
-
-    code = join([points, lines, loop, physical_surface, physical_line], "\n")
-    start += 1  # The next index suitable for numbering
-
-    (code, start)
+    (points, lines)
 end
 
-# FIXME: do we want cotrol over sizes?
+# Convert to gmsh ------------------------------------------------------------------------
+
+function gmsh_script(canvas::Canvas, size::Real=1.)
+    counter = 1  # Of any GMSH entities
+
+    gmsh_code = Vector{AbstractString}(["SIZE = $(size);\n"])
+    loops = Vector{Int}()  # Each shape is a closed loop, their collection together with the
+                           # canvas loop defines the outer domain
+
+    # We first write shapes
+    for (tag, shape) in enumerate(canvas.shapes)
+        points, lines = primitives(shape)
+        # Will need to convert entities from local to global
+        local_to_global = collect(counter:counter+length(points)-1)
+        # Code for points
+        points_gmsh, counter = gmsh_script(points, local_to_global, counter)
+        # In case of lines we want a loop as well; for loops and to define physical ...
+        lines_gmsh, shape_loop, counter = gmsh_script(lines, local_to_global, counter)
+        # Line Loop is another entity
+        loop_gmsh = "Line Loop($(counter)) = {$(join(map(x -> "$(x)", shape_loop), ", "))};"
+        counter += 1
+        # Plane surface in terms of line loop
+        surf_gmsh = "Plane Surface($(counter)) = {$(counter-1)};"
+        # Physical, not entities
+        physurf_gmsh = "Physical Surface($(tag)) = {$(counter)};"
+        physline_gmsh = "Physical Line($(tag)) = {$(join(map(x-> "$(x)", shape_loop), ", "))};"
+
+        loops = vcat(loops, counter-1)  # Add to 'inner' boundary
+        # Prepare for next round
+        counter += 1  # Counter so that it is ready to use
+        shape_code = join([points_gmsh,
+                           lines_gmsh,
+                           loop_gmsh,
+                           surf_gmsh,
+                           physurf_gmsh, 
+                           physline_gmsh,
+                           "//--------------------\n"], "\n")  # For readability
+        push!(gmsh_code, shape_code)
+    end
+
+    tag = length(canvas.shapes) + 1
+    # Now the canvas
+    points, lines = primitives(canvas.bbox)
+    local_to_global = collect(counter:counter+length(points)-1)
+    
+    points_gmsh, counter = gmsh_script(points, local_to_global, counter)
+    
+    lines_gmsh, shape_loop, counter = gmsh_script(lines, local_to_global, counter)
+    loop_gmsh = "Line Loop($(counter)) = {$(join(map(x -> "$(x)", shape_loop), ", "))};"
+    counter += 1
+
+    surf_gmsh = "Plane Surface($(counter)) = {$(counter-1), $(join(map(x -> "$(x)", loops), ", "))};"
+    physurf_gmsh = "Physical Surface($(tag)) = {$(counter)};"
+    physline_gmsh = "Physical Line($(tag)) = {$(join(map(x-> "$(x)", shape_loop), ", "))};"
+
+    canvas_code = join([points_gmsh,
+                        lines_gmsh,
+                        loop_gmsh,
+                        surf_gmsh,
+                        physurf_gmsh, 
+                        physline_gmsh,
+                        "//--------------------\n"], "\n")
+    push!(gmsh_code, canvas_code)
+
+    # Done
+    join(gmsh_code, "\n")
+end
+
+function gmsh_script(points::Vector{Point}, local_to_global::Vector{Int}, counter::Int)
+    # Code for points
+    points_gmsh = Vector{AbstractString}()
+    
+    for (local_index, point) in enumerate(points)
+        str = "Point($(local_to_global[local_index])) = {$(point.x), $(point.y), 0., SIZE};"
+        push!(points_gmsh, str)
+        counter +=1
+    end
+    points_gmsh = join(points_gmsh, "\n")
+
+    (points_gmsh, counter)
+end
+
+function gmsh_script(lines::Dict, local_to_global::Vector{Int}, counter::Int)
+    # Lines are written differently based on straight, circle, etc..
+    lines_gmsh = Vector{AbstractString}()
+    shape_loop = Vector{Int}() 
+    for line_type in keys(lines)
+        # Straight, 2 points
+        if line_type == :Line
+            for line in lines[line_type]
+                v0, v1 = local_to_global[first(line)], local_to_global[last(line)]
+                str = "Line($(counter)) = {$(v0), $(v1)};"
+                push!(lines_gmsh, str)
+                push!(shape_loop, counter)
+                counter +=1
+            end
+        end
+    end
+    lines_gmsh = join(lines_gmsh, "\n")
+
+    (lines_gmsh, shape_loop, counter)
+end
+
 # FIXME: Obligue
-# FIXME: Canvas
+# FIXME: do we want cotrol over sizes?

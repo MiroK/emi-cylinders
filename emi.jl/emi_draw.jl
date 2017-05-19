@@ -24,6 +24,40 @@ last(p::Point) = p.y
 
 # ----------------------------------------------------------------------------------------
 
+# We are after making closed polygons. These are some primitives which constitute them
+abstract Curve
+
+immutable Line <: Curve
+    p0::Point
+    p1::Point
+
+    function Line(p0, p1)
+        @assert !(p0 == p1)
+        new(p0, p1)
+    end
+end
++(l::Line, vec::Point) = Line(l.p0+vec, l.p1+vec)
+first(l::Line) = l.p0
+last(l::Line) = l.p1
+
+immutable CircleArc <: Curve
+    p0::Point
+    center::Point
+    p1::Point
+
+    function CircleArc(p0, center, p1)
+        @assert !(p0 == center) && !(p1 == center) && !(p0 == p1)
+        new(p0, center, p1)
+    end
+end
++(c::CircleArc, vec::Point) = CircleArc(c.p0+vec, c.center+vec, c.p1+vec)
+first(c::CircleArc) = c.p0
+last(c::CircleArc) = c.p1
+
+# FIXME: Ellipse here
+
+# ----------------------------------------------------------------------------------------
+
 """Shapes of cells"""
 abstract Shape
 
@@ -84,7 +118,25 @@ immutable ClosedPolygon <: Shape
 end
 +(shape::ClosedPolygon, vec::Point) = ClosedPolygon(map(p -> p+vec, shape.points))
 
-"""The points should be unique"""
+immutable CompositeLoop <: Shape
+    curves::Vector{Curve}
+
+    function CompositeLoop(curves)
+        @assert !isempty(curves)
+        # The loop must be closed
+        length(curves) == 1 && @assert first(first(curves)) == last(first(curves))
+        @assert first(first(curves)) == last(last(curves))
+
+        # The line form a connected path, first of this is last of prev
+        for k in 2:length(curves)
+            @assert first(curves[k]) == last(curves[k-1])
+        end
+        
+        new(curves)
+    end
+end
+
+# The points should be unique
 function is_degenerate(poly::ClosedPolygon)
     points = poly.points
     n = length(poly.points)
@@ -98,7 +150,7 @@ function is_degenerate(poly::ClosedPolygon)
     false
 end
 
-"""Just for fun, convexity"""
+# Checking convexity (not used anywhere, just for fun)
 function is_convex(poly::ClosedPolygon)
     points = poly.points
     n = length(points)
@@ -114,6 +166,8 @@ function is_convex(poly::ClosedPolygon)
     end
     true
 end
+
+# FIXME: CircleArc, EllipseArc, form a closed loop curve CompositeLoop
 
 # ----------------------------------------------------------------------------------------
 
@@ -228,7 +282,7 @@ function set_bbox!(canvas::Canvas, ll::Point, ur::Point)
     canvas.bbox = BoundingBox(ll, ur)
 end
 
-function set_bbox!(padx::Real, pady::Real)
+function set_bbox!(canvas::Canvas, padx::Real, pady::Real)
     @assert padx > 0 && pady > 0
     ll = canvas.bbox.ll - Point(padx, pady)
     ur = canvas.bbox.ur + Point(padx, pady)
