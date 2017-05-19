@@ -171,21 +171,19 @@ function make_path(curves::Vector{Curve})
     (path, orientation)
 end
 
-immutable CompositeLoop <: Shape
+immutable Loop <: Shape
     curves::Vector{Curve}
+    orientation::Vector{Int}
 
-    function CompositeLoop(curves)
+    function Loop(curves)
         @assert !isempty(curves)
-        length(curves) == 1 && @assert first(first(curves)) == last(first(curves))
-
-        @assert first(first(curves)) == last(last(curves))
-
-        # The line form a connected path, first of this is last of prev, but orientation
-        for k in 2:length(curves)
-            @assert first(curves[k]) == last(curves[k-1])
-        end
         
-        new(curves)
+        curves, orientation = make_path(curves)
+        # Now see if it is closed
+        last(orientation) == 1 && @assert first(first(curves)) == last(last(curves))
+        last(orientation) == -1 && @assert first(first(curves)) == first(last(curves))
+
+        new(curves, orientation)
     end
 end
 
@@ -257,7 +255,7 @@ BoundingBox(points::Vector{Point}) = BoundingBox(Point(minimum(map(first, points
 
 BoundingBox(shape::ClosedPolygon) = BoundingBox(shape.points)
 
-BoundingBox(loop::CompositeLoop) = BoundingBox(map(BoundingBox, loop.curves))
+BoundingBox(loop::Loop) = BoundingBox(map(BoundingBox, loop.curves))
 
 BoundingBox{T<:Shape}(shapes::Vector{T}) = BoundingBox(map(BoundingBox, shapes))
 
