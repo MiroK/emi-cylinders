@@ -9,6 +9,7 @@ immutable Point
     x::Real
     y::Real
 end
+Point(p::Tuple{Real, Real}) = Point(p[1], p[2])
 ==(p::Point, q::Point) = (p.x == q.x) && (p.y == q.y)
 -(p::Point, q::Point) = Point(p.x-q.x, p.y-q.y)
 +(p::Point, q::Point) = Point(p.x+q.x, p.y+q.y)
@@ -44,7 +45,7 @@ immutable CircleArc <: Curve
     p0::Point
     center::Point
     p1::Point
-
+    # NOTE: order of p0, p1 translates to orientation
     function CircleArc(p0, center, p1)
         @assert !(p0 == center) && !(p1 == center) && !(p0 == p1)
         new(p0, center, p1)
@@ -54,7 +55,22 @@ end
 first(c::CircleArc) = c.p0
 last(c::CircleArc) = c.p1
 
-# FIXME: Ellipse here
+immutable EllipseArc <: Curve
+    p0::Point
+    center::Point
+    p1::Point
+    # NOTE: this is a defintion similar to GMSH with the condition that start is at major
+    # point; so p0(start), center, p0, p1(end) is how you'd do it in GMSH. Beware that this
+    # convenction enforces orientation
+    function EllipseArc(p0, center, p1)
+        @assert !(p0 == center) && !(p1 == center) && !(p0 == p1)
+        @assert abs(p0-center) > abs(p1-center)
+        new(p0, center, p1)
+    end
+end
++(c::EllipseArc, vec::Point) = EllipseArc(c.p0+vec, c.center+vec, c.p1+vec)
+first(c::EllipseArc) = c.p0
+last(c::EllipseArc) = c.p1
 
 # ----------------------------------------------------------------------------------------
 
@@ -79,7 +95,7 @@ immutable Ellipse <: Shape
 
     function Ellipse(center, x_axis, y_axis)
         @assert x_axis > 0 && y_axis > 0
-        new(center, size_x, size_y)
+        new(center, x_axis, y_axis)
     end
 end
 +(shape::Ellipse, vec::Point) = Ellipse(shape.center+vec, shape.size_x, shape.size_y)
@@ -118,16 +134,53 @@ immutable ClosedPolygon <: Shape
 end
 +(shape::ClosedPolygon, vec::Point) = ClosedPolygon(map(p -> p+vec, shape.points))
 
+Triangle(v0::Point, v1::Point, v2::Point) = ClosedPolygon([v0, v1, v2])
+
+# This is a equilateral N-sided polygon with given volume
+function NGon(N::Int, V::Real)
+    @assert N > 2 && V > 0
+    R = sqrt(2*V/N/sin(2*pi/N))
+    angles = 2*pi/N*(1:N)
+    ClosedPolygon(map(Point, zip(R*cos(angles), R*sin(angles))))
+end
+
+function make_path(curves::Vector{Curve})
+    curve = first(curves)
+    orientation = [1]
+    path = Vector{Curve}([curve])
+
+    for index in 2:length(curves)
+        next = curves[index]
+        linked = false
+        # The first curve is orientated and the curves should follow each other
+        # So either they agree on orientation
+        if last(curve) == first(next)
+            push!(orientation, 1)
+            linked = true
+        end
+        # Or they don't
+        if last(curve) == last(next)
+            push!(orientation, -1)
+            linked = true
+        end
+        # But they must be ordered
+        @assert linked
+        push!(path, next)
+        curve = next
+    end
+    (path, orientation)
+end
+
 immutable CompositeLoop <: Shape
     curves::Vector{Curve}
 
     function CompositeLoop(curves)
         @assert !isempty(curves)
-        # The loop must be closed
         length(curves) == 1 && @assert first(first(curves)) == last(first(curves))
+
         @assert first(first(curves)) == last(last(curves))
 
-        # The line form a connected path, first of this is last of prev
+        # The line form a connected path, first of this is last of prev, but orientation
         for k in 2:length(curves)
             @assert first(curves[k]) == last(curves[k-1])
         end
@@ -142,7 +195,7 @@ function is_degenerate(poly::ClosedPolygon)
     n = length(poly.points)
     for i in 1:n
         pointi = points[i]
-        for j in i:n-1
+        for j in i+1:n-1
             pointj = points[j]
             pointi == pointj && return true
         end
@@ -167,8 +220,6 @@ function is_convex(poly::ClosedPolygon)
     true
 end
 
-# FIXME: CircleArc, EllipseArc, form a closed loop curve CompositeLoop
-
 # ----------------------------------------------------------------------------------------
 
 """Smallest rectangle that contains the shape"""
@@ -183,6 +234,10 @@ immutable BoundingBox
     end
 end
 
+BoundingBox(l::Line) = BoundingBox([l.p0, l.p1])
+BoundingBox(c::CircleArc) = BoundingBox([c.p0, c.p1])
+BoundingBox(c::EllipseArc) = BoundingBox([c.p0, c.p1])
+
 BoundingBox(shape::Circle) = BoundingBox(shape.center - Point(shape.radius, shape.radius),
                                          shape.center + Point(shape.radius, shape.radius))
 
@@ -195,12 +250,27 @@ BoundingBox(shape::Rectangle) = BoundingBox(shape.ll,
 BoundingBox(shape::Square) = BoundingBox(shape.ll,
                                          shape.ll + Point(shape.size, shape.size))
 
-BoundingBox(shape::ClosedPolygon) = BoundingBox(Point(minimum(map(first, shape.points)),
-                                                      minimum(map(last, shape.points))),
-                                                Point(maximum(map(first, shape.points)),
-                                                      maximum(map(last, shape.points))))
+BoundingBox(points::Vector{Point}) = BoundingBox(Point(minimum(map(first, points)),
+                                                      minimum(map(last, points))),
+                                                Point(maximum(map(first, points)),
+                                                      maximum(map(last, points))))
 
-"""Collision between bounding boxes"""
+BoundingBox(shape::ClosedPolygon) = BoundingBox(shape.points)
+
+BoundingBox(loop::CompositeLoop) = BoundingBox(map(BoundingBox, loop.curves))
+
+BoundingBox{T<:Shape}(shapes::Vector{T}) = BoundingBox(map(BoundingBox, shapes))
+
+BoundingBox(b::BoundingBox) = b
+BoundingBox(b::BoundingBox, B::BoundingBox) = BoundingBox([b.ll, b.ur, B.ll, B.ur])
+
+function BoundingBox(boxes::Vector{BoundingBox})
+    length(shapes) == 1 && return first(boxes)
+    # Otherwise, don't want recursion
+    BoundingBox([[b.ll for b in boxes]..., [b.ur for b in boxes]...])
+end
+
+# Collision between bounding boxes
 function collides(b::BoundingBox, B::BoundingBox, tol=1E-13)
     const ll, ur, LL, UR = b.ll, b.ur, B.ll, B.ur
     !(((ur.x+tol < LL.x) || (UR.x + tol < ll.x)) || ((ur.y+tol < LL.y) || (UR.y + tol < ll.y)))
@@ -209,18 +279,6 @@ end
 collides{T<:Shape}(b::BoundingBox, shape::T) = collides(b, BoundingBox(shape))
 collides{T<:Shape}(shape::T, B::BoundingBox) = collides(BoundingBox(shape), B)
 collides{T<:Shape, S<:Shape}(b::T, B::S) = collides(BoundingBox(b), BoundingBox(B))
-
-BoundingBox(b::BoundingBox, B::BoundingBox) = BoundingBox(Point(min(b.ll.x, B.ll.x),
-                                                                min(b.ll.y, B.ll.y)),
-                                                          Point(max(b.ur.x, B.ur.x),
-                                                                max(b.ur.y, B.ur.y)))
-
-function BoundingBox{T<:Shape}(shapes::Vector{T})
-    length(shapes) == 1 && return BoundingBox(first(shapes))
-    length(shapes) == 2 && return BoundingBox(map(BoundingBox, shapes)...)
-    # Otherwise
-    BoundingBox(BoundingBox(shapes[1:2]), BoundingBox(shapes[3:end]))
-end
 
 # ----------------------------------------------------------------------------------------
 
@@ -293,29 +351,28 @@ end
 # Drawing composites/tissue #
 #############################
 
-"""Make nxm grid of shapes which are separated by given spacing"""
-function fill_canvas(shape::Shape, counts::Tuple{Int, Int}, spacing::Tuple{Real, Real})
-    # Compute the transform
-    bb = BoundingBox(shape)
-    dx = (first(bb.ur) - first(bb.ll)) + first(spacing)
-    dy = (last(bb.ur) - last(bb.ll)) + last(spacing)
-    shift_x = Point(dx, 0)
-    shift_y = Point(0, dy)
-   
-    n, m = counts
-    model = shape
-    shapes = [shape]
-    for j in 1:m
-        # Fill horizontal o -> o -> o 
-        for i in 1:n-1
-            push!(shapes, model + i*shift_x)
-        end
-        # Fill vertical
-        model = model + shift_y
-        j < m && push!(shapes, model)
-    end
-    println(shapes)
-    Canvas(shapes)
-end
-
-# FIXME: concentric circle, concentric triangles, tiling
+#"""Make nxm grid of shapes which are separated by given spacing"""
+#function fill_canvas(shape::Shape, counts::Tuple{Int, Int}, spacing::Tuple{Real, Real})
+#    # Compute the transform
+#    bb = BoundingBox(shape)
+#    dx = (first(bb.ur) - first(bb.ll)) + first(spacing)
+#    dy = (last(bb.ur) - last(bb.ll)) + last(spacing)
+#    shift_x = Point(dx, 0)
+#    shift_y = Point(0, dy)
+#   
+#    n, m = counts
+#    model = shape
+#    shapes = [shape]
+#    for j in 1:m
+#        # Fill horizontal o -> o -> o 
+#        for i in 1:n-1
+#            push!(shapes, model + i*shift_x)
+#        end
+#        # Fill vertical
+#        model = model + shift_y
+#        j < m && push!(shapes, model)
+#    end
+#    println(shapes)
+#    Canvas(shapes)
+#end
+## FIXME: concentric circle, concentric triangles, tiling

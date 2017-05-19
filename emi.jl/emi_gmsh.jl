@@ -36,6 +36,37 @@ function primitives(shape::ClosedPolygon)
     (points, lines)
 end
 
+function primitives(shape::Circle)
+    points = [shape.center,
+              shape.center + Point(shape.radius, 0),
+              shape.center + Point(0, shape.radius),
+              shape.center + Point(-shape.radius, 0),
+              shape.center + Point(0, -shape.radius)]
+    lines = Dict(:Circle => [(2, 1, 3), (3, 1, 4), (4, 1, 5), (5, 1, 2)])
+
+    (points, lines)
+end
+
+function primitives(shape::Ellipse)
+    if shape.size_x > shape.size_y
+        points = [shape.center,
+                  shape.center + Point(shape.size_x, 0),
+                  shape.center + Point(0, shape.size_y),
+                  shape.center + Point(-shape.size_x, 0),
+                  shape.center + Point(0, -shape.size_y)]
+    else
+        points = [shape.center,
+                  shape.center + Point(0, shape.size_y),
+                  shape.center + Point(shape.size_x, 0),
+                  shape.center + Point(0, -shape.size_y),
+                  shape.center + Point(-shape.size_x, 0)]
+    end
+    # NOTE: first, center, last, orientation
+    lines = Dict(:Ellipse => [(2, 1, 3, 1), (4, 1, 3, -1), (4, 1, 5, 1), (2, 1, 5, -1)])
+
+    (points, lines)
+end
+
 # Convert to gmsh ------------------------------------------------------------------------
 
 function gmsh_script(canvas::Canvas, size::Real=1.)
@@ -130,6 +161,31 @@ function gmsh_script(lines::Dict, local_to_global::Vector{Int}, counter::Int)
                 str = "Line($(counter)) = {$(v0), $(v1)};"
                 push!(lines_gmsh, str)
                 push!(shape_loop, counter)
+                counter +=1
+            end
+        end
+
+        # Circle, 3 points as begin, center, end
+        if line_type == :Circle
+            for line in lines[line_type]
+                v0, v1 = local_to_global[first(line)], local_to_global[last(line)]
+                center = local_to_global[line[2]]
+                str = "Circle($(counter)) = {$(v0), $(center), $(v1)};"
+                push!(lines_gmsh, str)
+                push!(shape_loop, counter)
+                counter +=1
+            end
+        end
+
+        # Ellipse, 4 points as begin, center, end; sign
+        if line_type == :Ellipse
+            for line in lines[line_type]
+                v0, center, v1 = local_to_global[line[1]], local_to_global[line[2]], local_to_global[line[3]]
+                sgn = line[4]
+
+                str = "Ellipse($(counter)) = {$(v0), $(center), $(v0), $(v1)};"
+                push!(lines_gmsh, str)
+                push!(shape_loop, sgn*counter)
                 counter +=1
             end
         end
