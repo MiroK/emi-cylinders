@@ -144,7 +144,7 @@ function NGon(N::Int, V::Real)
     ClosedPolygon(map(Point, zip(R*cos(angles), R*sin(angles))))
 end
 
-function make_path(curves::Vector{Curve})
+function make_path{T<:Curve}(curves::Vector{T})
     curve = first(curves)
     orientation = [1]
     path = Vector{Curve}([curve])
@@ -154,17 +154,19 @@ function make_path(curves::Vector{Curve})
         linked = false
         # The first curve is orientated and the curves should follow each other
         # So either they agree on orientation
-        if last(curve) == first(next)
+        link = (last(orientation) == 1) ? last(curve) : first(curve)
+
+        if link == first(next)
             push!(orientation, 1)
             linked = true
         end
         # Or they don't
-        if last(curve) == last(next)
+        if link == last(next)
             push!(orientation, -1)
             linked = true
         end
         # But they must be ordered
-        @assert linked
+        @assert linked "Linking $(index): $(last(curve)), $(first(next)), $(last(next)) | $(next)"
         push!(path, next)
         curve = next
     end
@@ -226,8 +228,8 @@ immutable BoundingBox
     ur::Point
     
     function BoundingBox(ll, ur)
-        @assert first(ll) < first(ur) 
-        @assert last(ll) < last(ur)
+        @assert first(ll) <= first(ur) 
+        @assert last(ll) <= last(ur)
         new(ll, ur)
     end
 end
@@ -263,7 +265,7 @@ BoundingBox(b::BoundingBox) = b
 BoundingBox(b::BoundingBox, B::BoundingBox) = BoundingBox([b.ll, b.ur, B.ll, B.ur])
 
 function BoundingBox(boxes::Vector{BoundingBox})
-    length(shapes) == 1 && return first(boxes)
+    length(boxes) == 1 && return first(boxes)
     # Otherwise, don't want recursion
     BoundingBox([[b.ll for b in boxes]..., [b.ur for b in boxes]...])
 end
