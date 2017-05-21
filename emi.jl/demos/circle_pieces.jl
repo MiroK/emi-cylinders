@@ -11,4 +11,4 @@ canvas = Canvas()
 canvas = canvas + loop
 
 set_bbox!(canvas, 0.2, 0.3)
-println(gmsh_script(canvas, 0.2))
+gmsh_script(canvas, 0.2)

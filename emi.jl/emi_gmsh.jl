@@ -178,10 +178,7 @@ end
 #end
 
 
-function gmsh_script(canvas::Canvas, size::Real)
-    count = write(STDOUT, gmsh_code(canvas, size))
-    "//$(count)"
-end
+gmsh_script(canvas::Canvas, size::Real) = write(STDOUT, gmsh_code(canvas, size))
 
 function gmsh_script(canvas::Canvas, file::AbstractString, size::Real)
     @assert last(splitext(file)) == ".geo" 
