@@ -1,0 +1,8 @@
+1. Proposal of using this for Aslak
+2. Isolate as julia package
+[3. Plotting with Tikz]
+4. Tiling, i.e. shape + transformation to create array of cell which have a common boundary
+[5. Going 3d, note that Mshr does note have subdomains in 3d]
+6. Some cool domains, i.e. 'circle packing'
+7. Nice opportunity to learn using macros, think @Circle 
+8. Compiler?

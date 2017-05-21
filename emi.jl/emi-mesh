@@ -4,13 +4,21 @@
 # I am currently unable to invoke gmsh from julia so until then meshing the geo file etc
 # must be done via bash
 
+if [ "$#" -eq 1 ]; then
+	# Dump STDOUT to file
+	julia $1 > debug.geo;
+	# Meshing
+    	gmsh debug.geo
+	rm debug.geo
+fi
+
 if [ "$#" -eq 2 ]; then
 	# Dump STDOUT to file
 	julia $1 > $2.geo;
 	# Meshing
 	gmsh -2 $2.geo -o $2.msh
 	# Conversion
-        dolfin-convert $2.msh $2.xml;
+    	dolfin-convert $2.msh $2.xml;
 	# Visualization
 	python -c "from dolfin import Mesh, MeshFunction, plot, interactive;
 mesh=Mesh('$2.xml');
@@ -20,5 +28,4 @@ plot(cell_f);
 plot(facet_f);
 interactive()
 "
-
 fi

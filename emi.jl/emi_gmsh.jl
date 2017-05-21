@@ -5,14 +5,17 @@ abstract IndexRepr
 immutable LineRepr <: IndexRepr
     id::NTuple{2, Int}
 end
+interior_indices(::LineRepr) = ()
 
 immutable CircleArcRepr <: IndexRepr
     id::NTuple{3, Int}
 end
+interior_indices(::CircleArcRepr) = (2,)
 
 immutable EllipseArcRepr <: IndexRepr
     id::NTuple{3, Int}
 end
+interior_indices(::EllipseArcRepr) = (2,)
 
 for (T, size) in zip((:LineRepr, :CircleArcRepr, :EllipseArcRepr), (2, 3, 3))
     eval(quote
@@ -114,6 +117,10 @@ function primitives(shape::Ellipse)
 end
 
 function primitives(shape::Loop)
+    # NOTE: loop as it comes here has curves defined in terms of points which can be not can
+    # coincide. Here we try to keep only the uniqe points - the check for duplicates,
+    # hoever, involves only the interior points of curves.
+
     curves = shape.curves
     orientation = shape.orientation
     @assert first(orientation) == 1
@@ -131,35 +138,91 @@ function primitives(shape::Loop)
         counter = length(all_points)
         # Connection over first
         points, indices = primitives(curve)
-        new_indices = [counter+i for i in 1:length(points)-1]
+        # First, interior, Last
         if sign == 1
-            all_points = vcat(all_points, points[2:end])
-            repr = typeof(indices)(tuple(link_index, new_indices...))
-            link = last(curve)
-            link_index = last(repr)
+            # First, is known 
+            global_indices = [link_index]
+            # Need to check interior points
+            for interior_id in interior_indices(indices)
+                point = points[interior_id]
+                index = findfirst(q -> q == point, all_points)
+                # Not seen
+                if index == 0
+                    push!(all_points, point)
+
+                    counter += 1
+                    index = counter
+                end
+                # Seen with index
+                push!(global_indices, index)
+            end
+            # The last gut is new
+            link = last(points)
+            push!(all_points, link)
+            counter += 1
+
+            link_index = counter
+            push!(global_indices, link_index)
+
+            repr = typeof(indices)(tuple(global_indices...))
         else
-            all_points = vcat(all_points, points[1:end-1])
-            repr = typeof(indices)(tuple(new_indices..., link_index))
-            link = first(curve)
+            # Last, is known so remember to add it later
+            # First is new
+            link = first(points)
+            push!(all_points, link)
+            counter +=1
+
+            global_indices = [counter]
+            # Need to check interior points
+            for interior_id in interior_indices(indices)
+                point = points[interior_id]
+                index = findfirst(q -> q == point, all_points)
+                # Not seen
+                if index == 0
+                    push!(all_points, point)
+
+                    counter += 1
+                    index = counter
+                end
+                # Seen with index
+                push!(global_indices, index)
+            end
+            # The last point is there already as link_index
+            push!(global_indices, link_index)
+
+            repr = typeof(indices)(tuple(global_indices...))
             link_index = first(repr)
         end
         push!(all_indices, repr)
     end
 
-    # FIXME: Not sure about this part
     # The last curve closes the loop so if 1/-1 oriented we have seen its last/first point
-    # That point was seen as 1, last is given by counter
+    # That point was seen as 1, last is given by link_index
     counter = length(all_points)
     curve, sign = last(curves), last(orientation)
     points, indices = primitives(curve)
-    
-    all_points = vcat(all_points, points[2:end-1])  # Only interior points
-    new_indices = [counter+i for i in 1:length(points)-2]
-    if sign == 1
-        repr = typeof(indices)(tuple(link_index, new_indices..., 1))
-    else
-        repr = typeof(indices)(tuple(1, new_indices..., link_index))
+   
+    global_indices = []
+    fi, li = (sign == 1) ? (link_index, 1) : (1, link_index)
+        
+    push!(global_indices, fi)
+    # Interior guys
+    for interior_id in interior_indices(indices)
+        point = points[interior_id]
+        index = findfirst(q -> q == point, all_points)
+        # Not seen
+        if index == 0
+            push!(all_points, point)
+
+            counter += 1
+            index = counter
+        end
+        # Seen with index
+        push!(global_indices, index)
     end
+    push!(global_indices, li)
+    
+    repr = typeof(indices)(tuple(global_indices...))
     push!(all_indices, repr)
 
     (all_points, collect(zip(all_indices, orientation)))
