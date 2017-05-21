@@ -167,10 +167,31 @@ end
 
 # Convert to gmsh ------------------------------------------------------------------------
 
-function gmsh_script(canvas::Canvas, size::Real=1.)
+#function mesh(canvas::Canvas, file::AbstractString, size::Real)
+#    base, ext = splitext(file)
+#
+#    geo_file = "$(base).geo"
+#    if ext == ".msh"
+#        @assert gmsh_script(canvas, "$(geo_file)", size) > 0
+#        run(`gmsh -2 $(geo_file) -o $(file)`)
+#    end
+#end
+
+
+function gmsh_script(canvas::Canvas, size::Real)
+    count = write(STDOUT, gmsh_code(canvas, size))
+    "//$(count)"
+end
+
+function gmsh_script(canvas::Canvas, file::AbstractString, size::Real)
+    @assert last(splitext(file)) == ".geo" 
+    write(open(file, "w"), gmsh_code(canvas, size))
+end
+
+function gmsh_code(canvas::Canvas, size::Real)
     counter = 1  # Of any GMSH entities
 
-    gmsh_code = Vector{AbstractString}(["SIZE = $(size);\n"])
+    code = Vector{AbstractString}(["SIZE = $(size);\n"])
     loops = Vector{Int}()  # Each shape is a closed loop, their collection together with the
                            # canvas loop defines the outer domain
 
@@ -180,9 +201,9 @@ function gmsh_script(canvas::Canvas, size::Real=1.)
         # Will need to convert entities from local to global
         local_to_global = collect(counter:counter+length(points)-1)
         # Code for points
-        points_gmsh, counter = gmsh_script(points, local_to_global, counter)
+        points_gmsh, counter = gmsh_code(points, local_to_global, counter)
         # In case of lines we want a loop as well; for loops and to define physical ...
-        curves_gmsh, shape_loop, counter = gmsh_script(curves, local_to_global, counter)
+        curves_gmsh, shape_loop, counter = gmsh_code(curves, local_to_global, counter)
         # Line Loop is another entity
         loop_gmsh = "Line Loop($(counter)) = {$(join(map(x -> "$(x)", shape_loop), ", "))};"
         counter += 1
@@ -202,7 +223,7 @@ function gmsh_script(canvas::Canvas, size::Real=1.)
                            physurf_gmsh, 
                            physline_gmsh,
                            "//--------------------\n"], "\n")  # For readability
-        push!(gmsh_code, shape_code)
+        push!(code, shape_code)
     end
     # Now the canvas
     tag = length(canvas.shapes) + 1
@@ -210,9 +231,9 @@ function gmsh_script(canvas::Canvas, size::Real=1.)
     points, curves = primitives(canvas.bbox)
     local_to_global = collect(counter:counter+length(points)-1)
     
-    points_gmsh, counter = gmsh_script(points, local_to_global, counter)
+    points_gmsh, counter = gmsh_code(points, local_to_global, counter)
     
-    curves_gmsh, shape_loop, counter = gmsh_script(curves, local_to_global, counter)
+    curves_gmsh, shape_loop, counter = gmsh_code(curves, local_to_global, counter)
     loop_gmsh = "Line Loop($(counter)) = {$(join(map(x -> "$(x)", shape_loop), ", "))};"
     counter += 1
 
@@ -227,13 +248,13 @@ function gmsh_script(canvas::Canvas, size::Real=1.)
                         physurf_gmsh, 
                         physline_gmsh,
                         "//--------------------\n"], "\n")
-    push!(gmsh_code, canvas_code)
+    push!(code, canvas_code)
 
     # Done
-    join(gmsh_code, "\n")
+    join(code, "\n")
 end
 
-function gmsh_script(points::Vector{Point}, local_to_global::Vector{Int}, counter::Int)
+function gmsh_code(points::Vector{Point}, local_to_global::Vector{Int}, counter::Int)
     # Code for points
     points_gmsh = Vector{AbstractString}()
     
@@ -247,7 +268,7 @@ function gmsh_script(points::Vector{Point}, local_to_global::Vector{Int}, counte
     (points_gmsh, counter)
 end
 
-function gmsh_script(line::Tuple{LineRepr, Int}, local_to_global::Vector{Int}, counter::Int)
+function gmsh_code(line::Tuple{LineRepr, Int}, local_to_global::Vector{Int}, counter::Int)
     line, orientation = line
     v0, v1 = local_to_global[first(line)], local_to_global[last(line)]
     line_gmsh = "Line($(counter)) = {$(v0), $(v1)};"
@@ -257,7 +278,7 @@ function gmsh_script(line::Tuple{LineRepr, Int}, local_to_global::Vector{Int}, c
     (line_gmsh, loop_piece, counter)
 end
 
-function gmsh_script(curve::Tuple{CircleArcRepr, Int}, local_to_global::Vector{Int}, counter::Int)
+function gmsh_code(curve::Tuple{CircleArcRepr, Int}, local_to_global::Vector{Int}, counter::Int)
     curve, orientation = curve
     v0, v1 = local_to_global[first(curve)], local_to_global[last(curve)]
     center = local_to_global[curve[2]]
@@ -268,7 +289,7 @@ function gmsh_script(curve::Tuple{CircleArcRepr, Int}, local_to_global::Vector{I
     (curve_gmsh, loop_piece, counter)
 end
 
-function gmsh_script(curve::Tuple{EllipseArcRepr, Int}, local_to_global::Vector{Int}, counter::Int)
+function gmsh_code(curve::Tuple{EllipseArcRepr, Int}, local_to_global::Vector{Int}, counter::Int)
     curve, orientation = curve
     v0, center, v1 = local_to_global[curve[1]], local_to_global[curve[2]], local_to_global[curve[3]]
     curve_gmsh = "Ellipse($(counter)) = {$(v0), $(center), $(v0), $(v1)};"
@@ -278,12 +299,12 @@ function gmsh_script(curve::Tuple{EllipseArcRepr, Int}, local_to_global::Vector{
     (curve_gmsh, loop_piece, counter)
 end
 
-function gmsh_script{T<:IndexRepr}(curves::Vector{Tuple{T, Int}}, local_to_global::Vector{Int}, counter::Int)
+function gmsh_code{T<:IndexRepr}(curves::Vector{Tuple{T, Int}}, local_to_global::Vector{Int}, counter::Int)
     curves_gmsh = Vector{AbstractString}()
     shape_loop = Vector{Int}() 
     
     for curve in curves
-        curve_gmsh, loop_piece, counter = gmsh_script(curve, local_to_global, counter)
+        curve_gmsh, loop_piece, counter = gmsh_code(curve, local_to_global, counter)
         push!(curves_gmsh, curve_gmsh)
         push!(shape_loop, loop_piece)
     end
