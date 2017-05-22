@@ -1,4 +1,4 @@
-import Base: ==, abs, dot, -, +, cross, first, last, isempty, *
+import Base: ==, abs, dot, -, +, cross, first, last, isempty, *, size
 
 #########################
 # Drawing simple shapes #
@@ -188,6 +188,7 @@ immutable Loop <: Shape
         new(curves, orientation)
     end
 end
++(shape::Loop, vec::Point) = Loop(map(p -> p+vec, shape.curves))
 
 # The points should be unique
 function is_degenerate(poly::ClosedPolygon)
@@ -233,6 +234,7 @@ immutable BoundingBox
         new(ll, ur)
     end
 end
+size(bbox::BoundingBox, dim::Int) = (dim == 1) ? (bbox.ur.x-bbox.ll.x) : (bbox.ur.y-bbox.ll.y)
 
 BoundingBox(l::Line) = BoundingBox([l.p0, l.p1])
 BoundingBox(c::CircleArc) = BoundingBox([c.p0, c.p1])

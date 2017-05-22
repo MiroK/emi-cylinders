@@ -230,22 +230,65 @@ end
 
 # Convert to gmsh ------------------------------------------------------------------------
 
-#function mesh(canvas::Canvas, file::AbstractString, size::Real)
-#    base, ext = splitext(file)
-#
-#    geo_file = "$(base).geo"
-#    if ext == ".msh"
-#        @assert gmsh_script(canvas, "$(geo_file)", size) > 0
-#        run(`gmsh -2 $(geo_file) -o $(file)`)
-#    end
-#end
+function mesh(canvas::Canvas, size::Real, file::AbstractString)
+    base, ext = splitext(file)
 
+    geo_file = "$(base).geo"
+    if ext == ".msh"
+        @assert gmsh_script(canvas, "$(geo_file)", size)
+        gmsh = success(`gmsh -2 $(geo_file) -o $(file)`)
+        return gmsh && success(`rm $(geo_file)`)
+    end
+    # XML mesh, mesh itself & physical & facet
+    msh_file = "$(base).msh"
+    if ext == ".xml"
+        @assert mesh(canvas, size, msh_file)
+        convert = success(`dolfin-convert $(msh_file) $(file)`)
+        return convert && success(`rm $(msh_file)`)
+    end
+    # HDF5
+    xml_file = "$(base).xml"
+    if ext == ".h5"
+        @assert mesh(canvas, size, xml_file)
+
+const python = "
+from dolfin import Mesh, MeshFunction, mpi_comm_world, HDF5File;
+import os;
+
+xml_mesh = '$(xml_file)'
+base, ext = os.path.splitext(xml_mesh);
+assert os.path.exists(xml_mesh);
+
+xml_volumes = '$(base)_physical_region.xml';
+assert os.path.exists(xml_volumes);
+
+xml_facets = '$(base)_facet_region.xml';
+has_facet_regions = os.path.exists(xml_facets);
+
+mesh = Mesh(xml_mesh);
+cell_f = MeshFunction('size_t', mesh, xml_volumes);
+
+h5_file = '$(base).h5';
+out = HDF5File(mesh.mpi_comm(), h5_file, 'w');
+out.write(mesh, '/mesh');
+out.write(cell_f, '/cell_markers');
+
+if has_facet_regions: out.write(MeshFunction('size_t', mesh, xml_facets), '/facet_markers')
+#"
+        convert = success(`python -c "$(python)"`)
+        xmls = [xml_file, "$(base)_physical_region.xml", "$(base)_facet_region.xml"]
+        return convert && all(success(`rm $(file)`) for file in filter(isfile, xmls))
+    end
+end
 
 gmsh_script(canvas::Canvas, size::Real) = write(STDOUT, gmsh_code(canvas, size))
 
 function gmsh_script(canvas::Canvas, file::AbstractString, size::Real)
     @assert last(splitext(file)) == ".geo" 
-    write(open(file, "w"), gmsh_code(canvas, size))
+    f = open(file, "w")
+    count = write(f, gmsh_code(canvas, size))
+    close(f)
+    count > 0
 end
 
 function gmsh_code(canvas::Canvas, size::Real)
@@ -265,6 +308,8 @@ function gmsh_code(canvas::Canvas, size::Real)
         # In case of lines we want a loop as well; for loops and to define physical ...
         curves_gmsh, shape_loop, counter = gmsh_code(curves, local_to_global, counter)
         # Line Loop is another entity
+        # NOTE, all stuff below is what gmsh_code of a curve should do .... Anyways, there
+        # will be rewrite of this because of 3d
         loop_gmsh = "Line Loop($(counter)) = {$(join(map(x -> "$(x)", shape_loop), ", "))};"
         counter += 1
         # Plane surface in terms of line loop
