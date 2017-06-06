@@ -5,7 +5,7 @@ include("emi_draw.jl")
 
 export Point
 export Curve, Line, CircleArc, EllipseArc
-export Shape, Circle, Ellipse, Rectangle, Square, ClosedPolygon, NGon, Loop
+export Shape, Circle, Ellipse, Rectangle, Square, ClosedPolygon, NGon, NGonR, Loop
 export BoundingBox
 export Canvas, set_bbox!
 

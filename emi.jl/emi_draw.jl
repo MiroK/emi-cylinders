@@ -137,11 +137,17 @@ end
 Triangle(v0::Point, v1::Point, v2::Point) = ClosedPolygon([v0, v1, v2])
 
 # This is a equilateral N-sided polygon with given volume
-function NGon(N::Int, V::Real)
+function NGon(N::Int, V::Real, x0::Real=0, y0::Real=0)
     @assert N > 2 && V > 0
     R = sqrt(2*V/N/sin(2*pi/N))
     angles = 2*pi/N*(1:N)
-    ClosedPolygon(map(Point, zip(R*cos(angles), R*sin(angles))))
+    ClosedPolygon(map(Point, zip(x0 + R*cos(angles), y0 + R*sin(angles))))
+end
+
+function NGonR(N::Int, R::Real, x0::Real=0, y0::Real=0)
+    @assert N > 2 && R > 0
+    angles = 2*pi/N*(1:N)
+    ClosedPolygon(map(Point, zip(x0 + R*cos(angles), y0 + R*sin(angles))))
 end
 
 function make_path{T<:Curve}(curves::Vector{T})
