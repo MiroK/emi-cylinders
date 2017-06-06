@@ -337,8 +337,8 @@ end
 
 """For later drawing increase the bounding rectangle"""
 function set_bbox!(canvas::Canvas, ll::Point, ur::Point)
-    @assert ll.x < canvas.ll.x && ll.y < canvas.ll.y
-    @assert ur.x > canvas.ur.x && ur.y > canvas.ur.y
+    @assert ll.x < canvas.bbox.ll.x && ll.y < canvas.bbox.ll.y
+    @assert ur.x > canvas.bbox.ur.x && ur.y > canvas.bbox.ur.y
     canvas.bbox = BoundingBox(ll, ur)
 end
 

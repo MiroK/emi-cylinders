@@ -230,6 +230,14 @@ end
 
 # Convert to gmsh ------------------------------------------------------------------------
 
+function mesh(canvas::Canvas, size::Vector, file::AbstractString)
+    base, ext = splitext(file)
+    for (index, size_i) in enumerate(size)
+        file_i = base * "$(index)" * ext
+        mesh(canvas, size_i, file_i)
+    end
+end
+
 function mesh(canvas::Canvas, size::Real, file::AbstractString)
     base, ext = splitext(file)
 

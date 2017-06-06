@@ -15,7 +15,7 @@ module Gmsh
 using EMI.Draw
 include("emi_gmsh.jl")
 
-export gmsh_script
+export gmsh_script, mesh
 
 end  # Gmsh 
 
