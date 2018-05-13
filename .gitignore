@@ -3,4 +3,11 @@
 *.vtu
 *.h5
 
+*.aux
+*.dvi
+*.fls
+*.log
+*.fdb_latexmk
+*~
+
 *.swp
