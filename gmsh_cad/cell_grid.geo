@@ -7,8 +7,8 @@ length_x = {4, Name "length of connection in x direction"}
 length_y = {10, Name "length of connection in y direction"}
 nx = {2, Name "number of cells in x direction"}
 ny = {2, Name "number o cells in y direction"}
-padx = {50, Name "bounding box padding in x direction"}
-pady = {50, Name "bounding box padding in y direction"}
+padx = {0, Name "bounding box padding in x direction"}
+pady = {0, Name "bounding box padding in y direction"}
 padz = {50, Name "bounding box padding in z direction"}
 size_cell = {4, Name "mesh size on cell surface"}
 size_box = {4, Name "mesh size on bounding box surface"}
@@ -91,21 +91,6 @@ all[] -= {inside[]};
 // Mark it as 2
 Physical Surface(2) = {all[]};
 
-// Finally the sizes
-Field[1] = MathEval;
-Field[1].F = Sprintf("%g", size_cell);
-// Use size_cell on interfaces
-Field[2] = Restrict;
-Field[2].IField = 1;
-Field[2].FacesList = {interfaces[]};
+Characteristic Length{interfaces[]} = size_cell;
+Characteristic Length{all[]} = size_box;
 
-Field[3] = MathEval;
-Field[3].F = Sprintf("%g", size_box);
-// Use size_box on the bounding box
-Field[4] = Restrict;
-Field[4].IField = 3;
-Field[4].FacesList = {all[]};
-
-Field[5] = Min;
-Field[5].FieldsList = {2, 4};
-Background Field = 5;  
