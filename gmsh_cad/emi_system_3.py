@@ -13,10 +13,10 @@ mesh = Mesh()
 h5.read(mesh, 'mesh', False)
 # The mesh comes in micro meters. Below it is more convenient to work in cm
 mesh.coordinates()[:] *= 1E-4
-# Facets in the mesh have tags 0, 1, 2. One is for interfaces between
-# cells and cells and the exterior. Two is used for marking boundary facets
-# of the domain - this is where typically zero DirichletBCs are applied
-# for the potential
+# Facets in the mesh have tags 0, 1, 2, 3 One is for interfaces between
+# cells and exterior, 3 are cell-cell interfaces. Two is used for marking
+# boundary facets of the domain - this is where typically zero DirichletBCs
+# are applied for the potential
 surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1)
 h5.read(surfaces, 'facet')
 # The domain is split into 2 subdomains marked as 1 and 2 (cell interior,
@@ -52,7 +52,8 @@ n = FacetNormal(mesh)('-')
 
 # Now onto the weak form
 # Electric properties of membrane and interior/exterior
-C_m = Constant(1)         # 1 mu F / cm^2                        
+C_m = Constant(1)         # 1 mu F / cm^2   @ 1
+C_mcc = Constant(1.1)     #                 @ 3
 cond_int = Constant(5)    # 5 mS / cm
 cond_ext = Constant(20)   # 20 mS / cm
 # Time step
@@ -64,16 +65,22 @@ Q = FunctionSpace(mesh, Qel)
 p0 = interpolate(Constant(1), Q)
 # And additional source on the boundary is the ionic current. For simplicity
 I_ion = p0
+# The source term for cell-cell interface
+I_gap = 2*p0
 
 # The system
 a = ((1/cond_int)*inner(sigma, tau)*dx(1)+(1/cond_ext)*inner(sigma, tau)*dx(2)
      - inner(div(tau), u)*dx(1) - inner(div(tau), u)*dx(2)
      + inner(p('+'), dot(tau('+'), n))*dS(1)
+     + inner(p('+'), dot(tau('+'), n))*dS(3)
      - inner(div(sigma), v)*dx(1) - inner(div(sigma), v)*dx(2)
      + inner(q('+'), dot(sigma('+'), n))*dS(1)
-     - (C_m/dt_fem)*inner(q('+'), p('+'))*dS(1))
+     + inner(q('+'), dot(sigma('+'), n))*dS(3)
+     - (C_m/dt_fem)*inner(q('+'), p('+'))*dS(1)
+     - (C_mcc/dt_fem)*inner(q('+'), p('+'))*dS(3))
 
-L = inner(q('+'), I_ion('+')-(C_m/dt_fem)*p0('+'))*dS(1)
+L = (inner(q('+'), I_ion('+')-(C_m/dt_fem)*p0('+'))*dS(1)
+     + inner(q('+'), I_gap('+')-(C_mcc/dt_fem)*p0('+'))*dS(3))
 
 # Additional terms to set to zero the dofs of W.sub(2) which are not on
 # the interfaces
