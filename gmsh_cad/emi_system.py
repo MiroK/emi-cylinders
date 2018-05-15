@@ -83,4 +83,8 @@ L -= inner(Constant(0)('+'), q('+'))*dS(0) + inner(Constant(0), q)*ds(2)
 A, b = PETScMatrix(), PETScVector()
 assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
 
-info("size(A) = %d" % A.size(0))
+# import numpy as np
+# for i in range(A.size(0)):
+#     cols, vals = A.getrow(i)
+#     assert np.linalg.norm(vals, 1) > 0
+# print A.size(0)
