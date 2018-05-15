@@ -1,0 +1,9 @@
+A sheet (structured grid) of cardiac cells can be viewed as a collection
+of tiles. Not every tile needs to be made from scratch. In fact about 4
+pieces form the basis of tiles; with the other ones obtained as shifts and
+rotations of the basis. The basic pieces are
+
+1) corner piece = left and bottom edge neighbor exterior
+2) bottom piece = bottom edge neighbors exterior
+3) left piece = left edge neighbors exterior
+4) center piece = no edge neighbors exterior

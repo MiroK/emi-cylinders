@@ -7,9 +7,9 @@ length_x = {4, Name "length of connection in x direction"}
 length_y = {10, Name "length of connection in y direction"}
 nx = {2, Name "number of cells in x direction"}
 ny = {2, Name "number o cells in y direction"}
-padx = {20, Name "bounding box padding in x direction"}
-pady = {20, Name "bounding box padding in y direction"}
-padz = {20, Name "bounding box padding in z direction"}
+padx = {50, Name "bounding box padding in x direction"}
+pady = {50, Name "bounding box padding in y direction"}
+padz = {50, Name "bounding box padding in z direction"}
 size_cell = {4, Name "mesh size on cell surface"}
 size_box = {4, Name "mesh size on bounding box surface"}
 ];
@@ -66,13 +66,6 @@ v = newv;
 Box(v) = {min_x, min_y, min_z, max_x-min_x, max_y-min_y, max_z-min_z};
 BooleanFragments {Volume{v}; Delete; }{Volume{volumes[]}; Delete; }
 
-cell_bdry() = Unique(Abs(Boundary{ Volume{volumes[]}; }));
-
-box = nx*ny + 1;
-box_bdry() = Unique(Abs(Boundary{ Volume{box}; }));
-
-BooleanFragments {Surface{box_bdry[]}; Delete; }{Surface{cell_bdry[]}; Delete; }
-
 // Mark interior and exterior domain differently to set material parameters
 // 1 is for inside
 Physical Volume(1) = {volumes[]};
@@ -86,8 +79,60 @@ For v In {1:(nx*ny)}
   vi() = Unique(Abs(Boundary{ Volume{v}; }));
   interfaces[] += {vi[]};
 EndFor
-// Interfaces between cells and exterior-interior
+
+cc_interfaces[] = {};
+// Let's try to get the cell-cell as separate x sweep
+For y In {1:ny}
+  For x In {1:(nx-1)}
+    this = (y-1)*nx + x;
+    that = this + 1;
+
+    this_surface[] = Unique(Abs(Boundary{ Volume{this}; }));
+    that_surface[] = Unique(Abs(Boundary{ Volume{that}; }));
+    
+    a = #this_surface[];
+    For i In {0:(a-1)}
+      ai = this_surface[i];
+      For j In {0:(a-1)}
+        bj = that_surface[j];
+        If (ai == bj)
+          cc_interfaces[] += {bj};
+        EndIf
+      EndFor
+    EndFor
+    
+  EndFor
+EndFor
+// Sweep y
+For x In {1:nx}
+  For y In {1:(ny-1)}
+    this = (y-1)*nx + x;
+    that = this + nx;
+    
+    Printf("%g %g", this, that);
+    this_surface[] = Unique(Abs(Boundary{ Volume{this}; }));
+    that_surface[] = Unique(Abs(Boundary{ Volume{that}; }));
+    
+    a = #this_surface[];
+    For i In {0:(a-1)}
+      ai = this_surface[i];
+      For j In {0:(a-1)}
+        bj = that_surface[j];
+        If (ai == bj)
+          cc_interfaces[] += {bj};
+        EndIf
+      EndFor
+    EndFor
+    
+  EndFor
+EndFor
+interfaces[] -= {cc_interfaces[]};
+interfaces[] -= {cc_interfaces[]};
+
+// Interfaces between cells and exterior
 Physical Surface(1) = {interfaces[]};
+// Interfaces between cells 
+Physical Surface(3) = {cc_interfaces[]};
 
 // Let's also mark the bounding box; it is a difference of the bounding
 // surfaces of cells
@@ -99,4 +144,5 @@ all[] -= {inside[]};
 Physical Surface(2) = {all[]};
 
 Characteristic Length{interfaces[]} = size_cell;
+Characteristic Length{cc_interfaces[]} = size_cell;
 Characteristic Length{all[]} = size_box;

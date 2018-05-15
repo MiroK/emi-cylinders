@@ -7,8 +7,6 @@ length_x = {4, Name "length of connection in x direction"}
 length_y = {10, Name "length of connection in y direction"}
 nx = {2, Name "number of cells in x direction"}
 ny = {2, Name "number o cells in y direction"}
-padx = {20, Name "bounding box padding in x direction"}
-pady = {20, Name "bounding box padding in y direction"}
 padz = {20, Name "bounding box padding in z direction"}
 size_cell = {4, Name "mesh size on cell surface"}
 size_box = {4, Name "mesh size on bounding box surface"}
@@ -53,25 +51,24 @@ For j In {1:(ny-1)}
 EndFor
 
 // Define bounding box
-min_x = -length/2 - length_x - padx;
-min_y = -depth - length_y - pady;
+min_x = -length/2 - length_x;
+min_y = -depth - length_y;
 min_z = -radius - padz;
 
-max_x = -length/2 - length_x + nx*x_shift + padx;
-max_y = -depth - length_y + ny*y_shift + pady;
+max_x = -length/2 - length_x + nx*x_shift;
+max_y = -depth - length_y + ny*y_shift;
 max_z = radius + padz;
 
 // Exterior
 v = newv;
 Box(v) = {min_x, min_y, min_z, max_x-min_x, max_y-min_y, max_z-min_z};
-BooleanFragments {Volume{v}; Delete; }{Volume{volumes[]}; Delete; }
 
 cell_bdry() = Unique(Abs(Boundary{ Volume{volumes[]}; }));
-
-box = nx*ny + 1;
-box_bdry() = Unique(Abs(Boundary{ Volume{box}; }));
-
+box_bdry() = Unique(Abs(Boundary{ Volume{v}; }));
+// Make sure that the mesh conforms to circles
 BooleanFragments {Surface{box_bdry[]}; Delete; }{Surface{cell_bdry[]}; Delete; }
+
+BooleanFragments {Volume{v}; Delete; }{Volume{volumes[]}; Delete; }
 
 // Mark interior and exterior domain differently to set material parameters
 // 1 is for inside

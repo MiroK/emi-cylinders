@@ -7,9 +7,9 @@ length_x = {4, Name "length of connection in x direction"}
 length_y = {10, Name "length of connection in y direction"}
 nx = {2, Name "number of cells in x direction"}
 ny = {2, Name "number o cells in y direction"}
-padx = {20, Name "bounding box padding in x direction"}
-pady = {20, Name "bounding box padding in y direction"}
-padz = {20, Name "bounding box padding in z direction"}
+padx = {50, Name "bounding box padding in x direction"}
+pady = {50, Name "bounding box padding in y direction"}
+padz = {50, Name "bounding box padding in z direction"}
 size_cell = {4, Name "mesh size on cell surface"}
 size_box = {4, Name "mesh size on bounding box surface"}
 ];
@@ -66,37 +66,77 @@ v = newv;
 Box(v) = {min_x, min_y, min_z, max_x-min_x, max_y-min_y, max_z-min_z};
 BooleanFragments {Volume{v}; Delete; }{Volume{volumes[]}; Delete; }
 
-cell_bdry() = Unique(Abs(Boundary{ Volume{volumes[]}; }));
-
-box = nx*ny + 1;
-box_bdry() = Unique(Abs(Boundary{ Volume{box}; }));
-
-BooleanFragments {Surface{box_bdry[]}; Delete; }{Surface{cell_bdry[]}; Delete; }
-
-// Mark interior and exterior domain differently to set material parameters
-// 1 is for inside
-Physical Volume(1) = {volumes[]};
-// 2 is out
-box = nx*ny + 1;
-Physical Volume(2) = {box};
-
-interfaces[] = {};
-// Collect interfaces
-For v In {1:(nx*ny)}
-  vi() = Unique(Abs(Boundary{ Volume{v}; }));
-  interfaces[] += {vi[]};
+// COlro each cylinder individually
+For row In {1:ny}
+  For col In {1:nx}
+    v = (row-1)*nx + col;
+    Physical Volume(v) = {v};
+  EndFor
 EndFor
-// Interfaces between cells and exterior-interior
-Physical Surface(1) = {interfaces[]};
+// External is largest
+ncells = nx*ny;
+box = ncells + 1;
+Physical Volume(box) = {box};
+
+ce_interfaces[] = {};  // Cell and exterior
+cc_interfaces[] = {};
+// Mark surfaces of volumes
+For row In {1:ny}
+  For col In {1:nx}
+    v = (row-1)*nx + col;
+    
+    v_surfaces() = Unique(Abs(Boundary{ Volume{v}; }));
+    vcount = #v_surfaces[];
+    shared[] = {};
+    
+    vleft = v+1;
+    vright = v-1;
+    vup = v + nx;
+    vdown = v -nx;
+    
+    neighbors[] = {vleft, vright, vup, vdown};
+    For n In {0:3}
+      neighbor = neighbors[n];
+      If(1 <= neighbor && neighbor <= ncells)
+        neighbor_surfaces() = Unique(Abs(Boundary{ Volume{neighbor}; }));
+        // Check for intersection
+      
+        ncount = #neighbor_surfaces[];
+        For i In {0:(ncount-1)}
+          ai = neighbor_surfaces[i];
+          For j In {0:(vcount-1)}
+            bj = v_surfaces[j];
+            If (ai == bj)
+              shared[] += {bj};
+              cc_interfaces[] += {bj};
+              
+              If (v > neighbor)
+                x = Round(Log10(neighbor)) + 1;
+                y = v;
+                tens = Round(Exp(x*Log(10)));
+                tag = tens*neighbor + v;
+                Physical Surface(tag) = {ai};
+              EndIf
+            EndIf
+          EndFor
+        EndFor
+      EndIf
+    EndFor
+    v_surfaces[] -= {shared[]};
+    ce_interfaces[] += {v_surfaces[]};
+  EndFor
+EndFor
+
+Physical Surface(1) = {ce_interfaces[]};
 
 // Let's also mark the bounding box; it is a difference of the bounding
 // surfaces of cells
-inside[] = Unique(Abs(Boundary{ Volume{volumes[]}; }));  
-// and bounding surfaces of the exterior
 all[] = Unique(Abs(Boundary{ Volume{box}; }));
-all[] -= {inside[]};
+all[] -= {cc_interfaces[]};
+all[] -= {ce_interfaces[]};
 // Mark it as 2
 Physical Surface(2) = {all[]};
 
-Characteristic Length{interfaces[]} = size_cell;
-Characteristic Length{all[]} = size_box;
+// Characteristic Length{interfaces[]} = size_cell;
+// Characteristic Length{cc_interfaces[]} = size_cell;
+// Characteristic Length{all[]} = size_box;
