@@ -87,4 +87,4 @@ assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
 #for i in range(A.size(0)):
 #    cols, vals = A.getrow(i)
 #    assert np.linalg.norm(vals, 1) > 0
-#print A.size(0)
+print A.size(0)

@@ -13,8 +13,8 @@ padx = {40, Name "bounding box padding in x direction"}
 pady = {40, Name "bounding box padding in y direction"}
 nx = {2, Name "number of cells in x direction"}
 ny = {2, Name "number o cells in y direction"}
-size_cell = {40, Name "mesh size on cell surface"}
-size_box = {40, Name "mesh size on bounding box surface"}
+size_cell = {60, Name "mesh size on cell surface"}
+size_box = {60, Name "mesh size on bounding box surface"}
 ];
 // The length units here micro meters
 
