@@ -13,6 +13,7 @@ mesh = Mesh()
 h5.read(mesh, 'mesh', False)
 # The mesh comes in micro meters. Below it is more convenient to work in cm
 mesh.coordinates()[:] *= 1E-4
+
 # Facets in the mesh have tags 0, 1, 2. One is for interfaces between
 # cells and cells and the exterior. Two is used for marking boundary facets
 # of the domain - this is where typically zero DirichletBCs are applied
@@ -83,8 +84,7 @@ L -= inner(Constant(0)('+'), q('+'))*dS(0) + inner(Constant(0), q)*ds(2)
 A, b = PETScMatrix(), PETScVector()
 assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
 
-#import numpy as np
-#for i in range(A.size(0)):
-#    cols, vals = A.getrow(i)
-#    assert np.linalg.norm(vals, 1) > 0
-print A.size(0)
+# import numpy as np
+# for i in range(A.size(0)):
+#     cols, vals = A.getrow(i)
+#     assert np.linalg.norm(vals, 1) > 0

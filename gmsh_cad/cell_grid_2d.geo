@@ -66,7 +66,7 @@ Macro Tile
   cl[] += l;
   
   cell_loop = newll;
-  Curve Loop(cell_loop) = {
+  Line Loop(cell_loop) = {
     cl[0], cl[1], cl[2], cl[3], cl[4],
     cl[5], cl[6], cl[7], cl[8], cl[9],
     cl[10], cl[11], cl[12], cl[13], cl[14],
@@ -101,22 +101,22 @@ Macro Tile
   bl[] = {l, l+1, l+2, l+3, l+4, l+5, l+6, l+7};
   // We have 4 exterior loops
   ext_cl1 = newll;
-  Curve Loop(ext_cl1) = {bl[2], bl[3], cl[10], cl[11], cl[12], cl[13]};
+  Line Loop(ext_cl1) = {bl[2], bl[3], cl[10], cl[11], cl[12], cl[13]};
   ext_s1 = news;
   Plane Surface(ext_s1) = {ext_cl1};
   
   ext_cl2 = newll;
-  Curve Loop(ext_cl2) = {bl[4], bl[5], cl[5], cl[6], cl[7], cl[8]};
+  Line Loop(ext_cl2) = {bl[4], bl[5], cl[5], cl[6], cl[7], cl[8]};
   ext_s2 = news;
   Plane Surface(ext_s2) = {ext_cl2};
 
   ext_cl3 = newll;
-  Curve Loop(ext_cl3) = {bl[6], bl[7], cl[0], cl[1], cl[2], cl[3]};
+  Line Loop(ext_cl3) = {bl[6], bl[7], cl[0], cl[1], cl[2], cl[3]};
   ext_s3 = news;
   Plane Surface(ext_s3) = {ext_cl3};
 
   ext_cl4 = newll;
-  Curve Loop(ext_cl4) = {bl[0], bl[1], cl[15], cl[16], cl[17], cl[18]};
+  Line Loop(ext_cl4) = {bl[0], bl[1], cl[15], cl[16], cl[17], cl[18]};
   ext_s4 = news;
   Plane Surface(ext_s4) = {ext_cl4};
   
@@ -236,7 +236,7 @@ Line(l+3) = {p+3, p};
 
 frame[] = {l, l+1, l+2, l+3};
 frame_ll = newl;
-Curve Loop(frame_ll) = {frame[]};
+Line Loop(frame_ll) = {frame[]};
 
 // Go every boundary volume 
 // then its every surface that is in shared should be flipped
