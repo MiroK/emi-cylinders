@@ -5,7 +5,7 @@ parameters['form_compiler']['cpp_optimize'] = True
 parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=native'
 parameters['ghost_mode'] = 'shared_facet'
 
-mesh_file = 'cell_grid.h5'
+mesh_file = 'cell_grid_2d.h5'
 
 comm = mpi_comm_world()
 h5 = HDF5File(comm, mesh_file, 'r')
@@ -83,8 +83,8 @@ L -= inner(Constant(0)('+'), q('+'))*dS(0) + inner(Constant(0), q)*ds(2)
 A, b = PETScMatrix(), PETScVector()
 assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
 
-# import numpy as np
-# for i in range(A.size(0)):
-#     cols, vals = A.getrow(i)
-#     assert np.linalg.norm(vals, 1) > 0
-# print A.size(0)
+#import numpy as np
+#for i in range(A.size(0)):
+#    cols, vals = A.getrow(i)
+#    assert np.linalg.norm(vals, 1) > 0
+#print A.size(0)

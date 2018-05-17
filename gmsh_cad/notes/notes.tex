@@ -135,7 +135,16 @@ For mesh generation run
 \]
 where the number $0.5$ passed to \emph{clscale} instructs to half the characteristic
 mesh sizes set in the script (\emph{size}\textunderscore\emph{box},
-\emph{size}\textunderscore\emph{cell}).
+\emph{size}\textunderscore\emph{cell}). The number thus controls resolution
+of the mesh. Two dimensional geometries are generated similarly using
+\[
+\texttt{gmsh -setnumber nx 2 -setnumber ny 2 cell\textunderscore grid\textunderscore 2d.geo}
+\]
+for inspecting and 
+\[
+\texttt{gmsh -2 -setnumber nx 2 -setnumber ny 2 -clscale 1.0 cell\textunderscore grid\textunderscore 2d.geo}
+\]
+for generation of the mesh.
 
 When Gmsh is done, I convert the \emph{msh} file to HDF5 file format
 using the

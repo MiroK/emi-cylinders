@@ -15,7 +15,6 @@ def convert(msh_file, h5_file):
 
     cmd = '''from dolfin import Mesh, HDF5File;\
              mesh=Mesh('%(xml_file)s');\
-             assert mesh.topology().dim() == 3;\
              out=HDF5File(mesh.mpi_comm(), '%(h5_file)s', 'w');\
              out.write(mesh, 'mesh');''' % {'xml_file': xml_file,
                                              'h5_file': h5_file}
@@ -47,7 +46,7 @@ def cleanup(files=None, exts=()):
         return map(os.remove, files)
     else:
         files = filter(lambda f: any(map(f.endswith, exts)), os.listdir('.'))
-        print 'Removing', files
+        print('Removing', files)
         return cleanup(files)
                     
 # --------------------------------------------------------------------
