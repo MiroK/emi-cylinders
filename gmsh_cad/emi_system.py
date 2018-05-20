@@ -5,9 +5,9 @@ parameters['form_compiler']['cpp_optimize'] = True
 parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=native'
 parameters['ghost_mode'] = 'shared_facet'
 
-mesh_file = 'cell_grid_2d.h5'
+mesh_file = 'cell_grid.h5'
 
-comm = mpi_comm_world()
+comm = MPI.comm_world
 h5 = HDF5File(comm, mesh_file, 'r')
 mesh = Mesh()
 h5.read(mesh, 'mesh', False)
@@ -40,11 +40,15 @@ tau, v, q = TestFunctions(W)
 # Grounding for potential
 bcs = [DirichletBC(W.sub(2), Constant(0), surfaces, 2)]
 
+#file = File("Volumes.pvd")
+#file << volumes
+#file = File("Surfaces.pvd")
+#file << surfaces
 # Make measures aware of subdomains
 dx = Measure('dx', domain=mesh, subdomain_data=volumes)
 dS = Measure('dS', domain=mesh, subdomain_data=surfaces)
 ds = Measure('ds', domain=mesh, subdomain_data=surfaces)
-    
+
 # Normal fo the INTERIOR surface. Note that 1, 2 marking of volume makes
 # 2 cells the '+' cells w.r.t to surface and n('+') would therefore be their
 # outer normal (that is an outer normal of the outside). ('-') makes the orientation
@@ -53,7 +57,7 @@ n = FacetNormal(mesh)('-')
 
 # Now onto the weak form
 # Electric properties of membrane and interior/exterior
-C_m = Constant(1)         # 1 mu F / cm^2                        
+C_m = Constant(1)         # 1 mu F / cm^2
 cond_int = Constant(5)    # 5 mS / cm
 cond_ext = Constant(20)   # 20 mS / cm
 # Time step
@@ -61,7 +65,7 @@ dt_fem = Constant(1E-3)   # ms
 
 # The source term as a function Q is coming from ODE solver. Here it is
 # just some random function
-Q = FunctionSpace(mesh, Qel)  
+Q = FunctionSpace(mesh, Qel)
 p0 = interpolate(Constant(1), Q)
 # And additional source on the boundary is the ionic current. For simplicity
 I_ion = p0
@@ -83,6 +87,7 @@ L -= inner(Constant(0)('+'), q('+'))*dS(0) + inner(Constant(0), q)*ds(2)
 
 A, b = PETScMatrix(), PETScVector()
 assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
+info("size(A) = %d" % A.size(0))
 
 # import numpy as np
 # for i in range(A.size(0)):
