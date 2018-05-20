@@ -12,7 +12,8 @@ parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=nati
 parameters['ghost_mode'] = 'shared_facet'
 opts = PETSc.Options()
 
-mesh_file = 'cell_grid.h5'
+mesh_file = '500Kdofs/cell_grid.h5'
+#mesh_file = '8Mdofs/cell_grid.h5'
 #mesh_file = 'cell_grid_2d.h5'
 
 comm = MPI.comm_world
@@ -56,7 +57,7 @@ bcs = [DirichletBC(W.sub(2), Constant(0), surfaces, 2)]
 dx = Measure('dx', domain=mesh, subdomain_data=volumes)
 dS = Measure('dS', domain=mesh, subdomain_data=surfaces)
 ds = Measure('ds', domain=mesh, subdomain_data=surfaces)
-    
+
 # Normal fo the INTERIOR surface. Note that 1, 2 marking of volume makes
 # 2 cells the '+' cells w.r.t to surface and n('+') would therefore be their
 # outer normal (that is an outer normal of the outside). ('-') makes the orientation
@@ -65,7 +66,7 @@ n = FacetNormal(mesh)('-')
 
 # Now onto the weak form
 # Electric properties of membrane and interior/exterior
-C_m = Constant(1)         # 1 mu F / cm^2                        
+C_m = Constant(1)         # 1 mu F / cm^2
 cond_int = Constant(5)    # 5 mS / cm
 cond_ext = Constant(20)   # 20 mS / cm
 # Time step
@@ -73,7 +74,7 @@ dt_fem = Constant(1E-3)   # ms
 
 # The source term as a function Q is coming from ODE solver. Here it is
 # just some random function
-Q = FunctionSpace(mesh, Qel)  
+Q = FunctionSpace(mesh, Qel)
 p0 = interpolate(Constant(1), Q)
 # And additional source on the boundary is the ionic current. For simplicity
 I_ion = p0
@@ -93,7 +94,7 @@ L = inner(q('+'), I_ion('+')-(C_m/dt_fem)*p0('+'))*dS(1)
 a -= inner(p('+'), q('+'))*dS(0) + inner(p, q)*ds(2)
 L -= inner(Constant(0)('+'), q('+'))*dS(0) + inner(Constant(0), q)*ds(2)
 
-# With DG-like assembly, the local to global maps have ghost cells (through shared facets)
+# In the presence of internal facet terms, the local to global maps have ghost cells (through shared facets)
 # However, only one process insert values there -> we need to prune empty local rows/columns
 # from the other processes. This can be done programmatically from PETSc, but it is currently
 # in a development branch
@@ -105,13 +106,8 @@ as_backend_type(A).mat().setOptionsPrefix("test_")
 as_backend_type(A).mat().setType("is")
 as_backend_type(A).mat().setFromOptions()
 assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
-#info("size(A) = %d" % A.size(0))
 
 as_backend_type(A).mat().viewFromOptions("-my_view")
-#
-#A1 = PETSc.Mat()
-#as_backend_type(A).mat().convert('mpiaij', A1)
-#A1.viewFromOptions("-ass_view")
 
 # Create PETSc Krylov solver (from petsc4py)
 ksp = PETSc.KSP()
@@ -119,10 +115,12 @@ ksp.create(PETSc.COMM_WORLD)
 ksp.setOptionsPrefix("test_")
 
 # Set the Krylov solver type and set tolerances
-# We can use CG, since we put all the DRT dofs (see setBDDCPrimalVerticesIS) that lie on the
-# interface between subdomains in the primal space
-# The coarse matrix will be diagonal on those DRT dofs (most of them) that are not on
-# the intra/extra cellular interface
+# We can use CG since DRT dofs will never be part of the interface between subdomains
+# This is because DRT dofs are only coupled to RT dofs and not cell dofs
+# Note: If DRT dofs were coupled to DG dofs, we could have put all the DRT dofs (see setBDDCPrimalVerticesIS) that lie on the
+#       interface between subdomains in the primal space
+#       The coarse matrix will be diagonal on those DRT dofs (most of them) that are not on
+#       the intra/extra cellular interface
 ksp.setType("cg")
 ksp.setTolerances(rtol=1.0e-8, atol=1.0e-12, divtol=1.0e10, max_it=300)
 ksp.setOperators(as_backend_type(A).mat())
@@ -131,6 +129,7 @@ pc.setType("bddc")
 #pc.setBDDCPrimalVerticesIS(PETSc.IS().createGeneral(W.sub(2).dofmap().dofs(),PETSc.COMM_WORLD))
 
 # Options
+opts.setValue("-test_ksp_view", None)
 opts.setValue("-test_ksp_converged_reason", None)
 opts.setValue("-test_ksp_monitor_singular_value", None)
 opts.setValue("-test_ksp_norm_type", "natural")
@@ -140,6 +139,8 @@ opts.setValue("-test_pc_bddc_detect_disconnected", None)
 opts.setValue("-test_pc_bddc_use_faces", None)
 opts.setValue("-test_pc_bddc_benign_trick", None)
 opts.setValue("-test_pc_bddc_nonetflux", None)
+opts.setValue("-test_pc_bddc_schur_exact", None)
+opts.setValue("-test_pc_bddc_use_deluxe_scaling", None)
 opts.setValue("-test_pc_bddc_deluxe_zerorows", None)
 opts.setValue("-test_pc_bddc_use_local_mat_graph", "0")
 opts.setValue("-test_pc_bddc_adaptive_userdefined", None)
@@ -156,10 +157,6 @@ opts.setValue("-test_pc_bddc_neumann_pc_type","cholesky") # This is actually LDL
 opts.setValue("-test_pc_bddc_dirichlet_pc_factor_mat_solver_type","mumps")
 opts.setValue("-test_pc_bddc_neumann_pc_factor_mat_solver_type","mumps")
 
-# Coarse solver (MUMPS)
-opts.setValue("-test_pc_bddc_coarse_pc_type","cholesky") # This is actually LDL^T
-opts.setValue("-test_pc_bddc_coarse_pc_factor_mat_solver_type","mumps")
-
 # Alternative local factorizations with SUITESPARSE
 #opts.setValue("-test_pc_bddc_dirichlet_pc_type","lu")
 #opts.setValue("-test_pc_bddc_neumann_pc_type","lu")
@@ -170,12 +167,58 @@ opts.setValue("-test_pc_bddc_coarse_pc_factor_mat_solver_type","mumps")
 #opts.setValue("-test_pc_bddc_coarse_pc_type","redundant")
 #opts.setValue("-test_pc_bddc_coarse_redundant_pc_factor_mat_solver_type","umfpack")
 
+# Number of additional levels : 0 means standard 2-level BDDC
+nlevels = 1
+
+# Coarse solver (MUMPS or BDDC)
+opts.setValue("-test_pc_bddc_coarse_pc_factor_mat_solver_type","mumps")
+if nlevels < 1:
+  opts.setValue("-test_pc_bddc_coarse_pc_type","cholesky") # This is actually LDL^T
+
+opts.setValue("-test_pc_bddc_levels",nlevels)
+opts.setValue("-test_pc_bddc_coarse_sub_schurs_mat_mumps_icntl_14",500)
+opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_deluxe_scaling",None)
+opts.setValue("-test_pc_bddc_coarse_pc_bddc_deluxe_zerorows",None)
+opts.setValue("-test_pc_bddc_coarse_pc_bddc_schur_exact",None)
+opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_local_mat_graph",None)
+opts.setValue("-test_pc_bddc_coarse_check_ksp_monitor",None)
+opts.setValue("-test_pc_bddc_coarse_check_ksp_converged_reason",None)
+opts.setValue("-test_pc_bddc_coarse_check_ksp_type","cg")
+opts.setValue("-test_pc_bddc_coarse_check_ksp_norm_type","natural")
+#opts.setValue("test_pc_bddc_coarse_ksp_type","chebyshev")
+#opts.setValue("test_pc_bddc_use_coarse_estimates",None)
+#opts.setValue("test_pc_bddc_coarse_pc_bddc_use_coarse_estimates",None)
+for j in range(0, nlevels):
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_sub_schurs_mat_mumps_icntl_14",500)
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_deluxe_scaling",None)
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_deluxe_zerorows",None)
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_schur_exact",None)
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_local_mat_graph",None)
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_ksp_type","chebyshev")
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_monitor",None)
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_converged_reason",None)
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
+  #opts.setValue("test_pc_bddc_coarse_l" + str(j) + "_ksp_type","chebyshev")
+  #opts.setValue("test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_coarse_estimates",None);
+
+# prevent to have a bad coarse solver
+opts.setValue("-test_pc_bddc_coarse_l3_redundant_pc_factor_mat_solver_package","mumps");
+opts.setValue("-test_pc_bddc_coarse_l2_redundant_pc_factor_mat_solver_package","mumps");
+opts.setValue("-test_pc_bddc_coarse_l1_redundant_pc_factor_mat_solver_package","mumps");
+opts.setValue("-test_pc_bddc_coarse_redundant_pc_factor_mat_solver_package","mumps")
+
 #Solve
 ksp.setFromOptions()
 sol = Function(W)
 ksp.solve(as_backend_type(b).vec(), as_backend_type(sol.vector()).vec())
 
-as_backend_type(sol.vector()).update_ghost_values()
+# prevent from deadlocks when garbage collecting
+del pc, ksp
+
+#as_backend_type(sol.vector()).update_ghost_values()
 
 #(sols, solv, solq) = sol.split()
 #file = File("electric.pvd")
