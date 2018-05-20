@@ -275,6 +275,6 @@ Physical Surface(2) = {exteriors[]};  // rim and exterior are 2
 Physical Surface(2) += {s};
 
 cell_interfaces[] = Unique(Abs(Boundary{ Surface{cells[]}; }));
-Physical Curve(1) = {cell_interfaces[]};
+Physical Line(1) = {cell_interfaces[]};
 
-Physical Curve(2) = {frame[]};
+Physical Line(2) = {frame[]};

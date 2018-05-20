@@ -98,5 +98,24 @@ all[] -= {inside[]};
 // Mark it as 2
 Physical Surface(2) = {all[]};
 
-Characteristic Length{interfaces[]} = size_cell;
-Characteristic Length{all[]} = size_box;
+//Characteristic Length{interfaces[]} = size_cell;
+//Characteristic Length{all[]} = size_box;
+
+Field[1] = MathEval;
+Field[1].F = Sprintf("%g", size_cell);
+
+Field[2] = Restrict;
+Field[2].IField = 1;
+Field[2].FacesList = {interfaces[]};
+
+// Mesh size on Probe
+Field[3] = MathEval;
+Field[3].F = Sprintf("%g", size_box);
+
+Field[4] = Restrict;
+Field[4].IField = 3;
+Field[4].FacesList = {all[]};
+  
+Field[5] = Min;
+Field[5].FieldsList = {2, 4};
+Background Field = 5;  
