@@ -1,3 +1,7 @@
+Print.X3dPrecision = 1E-15;
+Geometry.Tolerance = 1E-12;
+
+
 DefineConstant[
 radius = {10, Name "radius of cell"}
 radius_x = {8, Name "radius of connection in x direction"}
@@ -44,24 +48,16 @@ v() = BooleanFragments {Volume{box}; Delete; }{Volume{cells()}; Delete; };
 cylinders[] = {v[0], v[1], v[2], v[3]};
 exteriors[] = {v[4]};
 
-// n = #volumes[];
-// For i In {0:(n-1)}
-//   Printf("%g", volumes[i]);
-// EndFor
-
-// cylinders[] = {volumes[0], volumes[2], volumes[4], volumes[6]};
-// exteriors[] = {volumes[1], volumes[3], volumes[5], volumes[7]};
-
 // X periodicity
 surfMaster = 35;
-surfSlave = 37;
+surfSlave = 39;
 boundMaster[] = {25};
-boundSlave[] = {26};
+boundSlave[] = {45};
 Periodic Surface surfSlave { boundSlave[] } = surfMaster { boundMaster[] };
 
-surfMaster = 39;
+surfMaster = 37;
 surfSlave = 41;
-boundMaster[] = {46};
+boundMaster[] = {26};
 boundSlave[] = {46};
 Periodic Surface surfSlave { boundSlave[] } = surfMaster { boundMaster[] };
 
@@ -73,14 +69,14 @@ Periodic Surface surfSlave { boundSlave[] } = surfMaster { boundMaster[] };
 
 // Y periodicity
 surfMaster = 38;
-surfSlave = 42;
+surfSlave = 36;
 boundMaster[] = {37};
-boundSlave[] = {38};
+boundSlave[] = {30};
 Periodic Surface surfSlave { boundSlave[] } = surfMaster { boundMaster[] };
 
-surfMaster = 36;
+surfMaster = 42;
 surfSlave = 40;
-boundMaster[] = {30};
+boundMaster[] = {38};
 boundSlave[] = {31};
 Periodic Surface surfSlave { boundSlave[] } = surfMaster { boundMaster[] };
 

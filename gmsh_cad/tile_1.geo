@@ -1,3 +1,6 @@
+Print.X3dPrecision = 1E-15;
+Geometry.Tolerance = 1E-12;
+
 DefineConstant[
 radius = {10, Name "radius of cell"}
 radius_x = {8, Name "radius of connection in x direction"}
