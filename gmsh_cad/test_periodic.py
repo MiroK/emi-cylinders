@@ -1,4 +1,4 @@
-from dolfin import MeshFunction
+from dolfin import MeshFunction, info, Timer
 import numpy as np
 
 
@@ -15,14 +15,17 @@ def compute_vertex_periodicity(mesh, master, slave, to_master):
 
     assert len(master_vertices) == len(slave_vertices), (len(master_vertices), len(slave_vertices))
 
-    master_vertex_x = x[master_vertices]
-
-    mapping = {}
-    error = 0
-    for s in slave_vertices:
+    timer = Timer('mapping')
+    timer.start()
+    
+    error, mapping = 0., {}
+    while slave_vertices:
+        s = slave_vertices.pop()
         xs = x[s]
         mapped = to_master(xs)
         # Local to master_vertex_x
+        master_vertex_x = x[master_vertices]
+
         dist = np.sqrt(np.sum((master_vertex_x - mapped)**2, axis=1))
         mapped_index = np.argmin(dist)
         # Wrt to vertex numbering
@@ -30,6 +33,10 @@ def compute_vertex_periodicity(mesh, master, slave, to_master):
         mapping[s] = m
         error = max(error, dist[mapped_index])
 
+        master_vertices.remove(m)
+    assert not slave_vertices and not master_vertices
+    info('Mapping between %d entities computed in %g s' % (len(mapping), timer.stop()))
+    
     return error, mapping
     
 # --------------------------------------------------------------------
@@ -38,7 +45,7 @@ if __name__ == '__main__':
     from dolfin import *
 
     mesh_file = 'tile_2x2.h5'
-    mesh_file = 'tile_1.h5'
+    #mesh_file = 'tile_1.h5'
 
     comm = mpi_comm_world()
     h5 = HDF5File(comm, mesh_file, 'r')
@@ -64,6 +71,10 @@ if __name__ == '__main__':
     error, mapping = compute_vertex_periodicity(mesh, master, slave, to_master)
     assert error < 10*tol, error
     print(error)
+    # Just checking
+    slave_vertices, master_vertices = map(list, zip(*mapping.items()))
+    print(np.linalg.norm(np.sqrt(np.sum((to_master(x[slave_vertices]) - x[master_vertices])**2, axis=1)),
+                         np.inf))
 
     # Check y periodicity
     master = CompiledSubDomain('near(x[1], A, tol) && on_boundary', A=min_[1], tol=tol)
@@ -75,4 +86,9 @@ if __name__ == '__main__':
     error, mapping = compute_vertex_periodicity(mesh, master, slave, to_master)
     assert error < 10*tol, error
     print(error)
+    # Just checking
+    slave_vertices, master_vertices = map(list, zip(*mapping.items()))
+    print(np.linalg.norm(np.sqrt(np.sum((to_master(x[slave_vertices]) - x[master_vertices])**2, axis=1)),
+                         np.inf))
+
 
