@@ -1,7 +1,45 @@
-from dolfin import MeshFunction, info, Timer
+from dolfin import MeshFunction, info
 import numpy as np
 
 
+def compute_entity_periodicity(tdim, mesh, master, slave, to_master):
+    '''Mapping from slave entities of tdim to master'''
+    assert 0 <= tdim < mesh.topology().dim()
+
+    _, vertex_mapping = compute_vertex_periodicity(mesh, master, slave, to_master)
+    # Done for vertices
+    if tdim == 0:
+        return vertex_mapping
+
+    f = MeshFunction('size_t', mesh, tdim, 0)
+    master.mark(f, 2)
+    slave.mark(f, 3)
+
+    master_entities = (e.index() for e in SubsetIterator(f, 2))
+    slave_entities = (e.index() for e in SubsetIterator(f, 3))
+        
+    mesh.init(tdim, 0)
+    e2v = mesh.topology()(tdim, 0)
+    # Define in terms of vertices. Invert for loopup
+    master_vertices = {tuple(sorted(e2v(e))): e for e in master_entities}
+    # For slave we define via mapped vertices
+    slave_entities = {e: tuple(sorted(vertex_mapping[v] for v in e2v(e))) for e in slave_entities}
+
+    assert len(master_vertices) == len(slave_entities)
+
+    mapping = {}
+    while slave_entities:
+        s, vertices = slave_entities.popitem()
+        
+        m = master_vertices[vertices]
+        mapping[s] = m
+        
+        master_vertices.pop(vertices)
+    assert not slave_entities and not master_vertices
+    
+    return mapping
+    
+    
 def compute_vertex_periodicity(mesh, master, slave, to_master):
     '''Compute mapping from slave vertices to master vertices'''
     tdim = mesh.topology().dim()
@@ -9,15 +47,13 @@ def compute_vertex_periodicity(mesh, master, slave, to_master):
     master.mark(f, 2)
     slave.mark(f, 3)
 
+    mesh.init(tdim-1, 0)
     f2v = mesh.topology()(tdim-1, 0)
     master_vertices = list(set(sum((f2v(f.index()).tolist() for f in SubsetIterator(f, 2)), [])))
     slave_vertices = set(sum((f2v(f.index()).tolist() for f in SubsetIterator(f, 3)), []))
 
     assert len(master_vertices) == len(slave_vertices), (len(master_vertices), len(slave_vertices))
 
-    timer = Timer('mapping')
-    timer.start()
-    
     error, mapping = 0., {}
     while slave_vertices:
         s = slave_vertices.pop()
@@ -35,7 +71,6 @@ def compute_vertex_periodicity(mesh, master, slave, to_master):
 
         master_vertices.remove(m)
     assert not slave_vertices and not master_vertices
-    info('Mapping between %d entities computed in %g s' % (len(mapping), timer.stop()))
     
     return error, mapping
     
@@ -75,6 +110,9 @@ if __name__ == '__main__':
     slave_vertices, master_vertices = map(list, zip(*mapping.items()))
     print(np.linalg.norm(np.sqrt(np.sum((to_master(x[slave_vertices]) - x[master_vertices])**2, axis=1)),
                          np.inf))
+    # Mapping for higher entities
+    compute_entity_periodicity(1, mesh, master, slave, to_master)
+    compute_entity_periodicity(2, mesh, master, slave, to_master)
 
     # Check y periodicity
     master = CompiledSubDomain('near(x[1], A, tol) && on_boundary', A=min_[1], tol=tol)
@@ -90,5 +128,10 @@ if __name__ == '__main__':
     slave_vertices, master_vertices = map(list, zip(*mapping.items()))
     print(np.linalg.norm(np.sqrt(np.sum((to_master(x[slave_vertices]) - x[master_vertices])**2, axis=1)),
                          np.inf))
+
+    # Mapping for higher entities
+    compute_entity_periodicity(1, mesh, master, slave, to_master)
+    compute_entity_periodicity(2, mesh, master, slave, to_master)
+
 
 
