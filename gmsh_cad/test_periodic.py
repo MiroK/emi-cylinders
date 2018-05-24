@@ -1,4 +1,4 @@
-from dolfin import MeshFunction, info
+from dolfin import MeshFunction, info, SubsetIterator
 import numpy as np
 
 
@@ -46,6 +46,8 @@ def compute_vertex_periodicity(mesh, master, slave, to_master):
     f = MeshFunction('size_t', mesh, tdim-1, 0)
     master.mark(f, 2)
     slave.mark(f, 3)
+
+    x = mesh.coordinates()
 
     mesh.init(tdim-1, 0)
     f2v = mesh.topology()(tdim-1, 0)
