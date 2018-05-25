@@ -4,6 +4,14 @@ from itertools import izip
 import numpy as np
 import operator
 
+# FIXME: 
+#
+# make_mesh is a bottle neck; both writing the mesh and then 
+# creating the mesh functions takes most of the time of TileMesh
+#
+# if make_mesh stored MeshValueCollections and there was way to 
+# make mvc to MeshFunctions then a lot of space could be saved
+
 
 def TileMesh(tile, shape, mesh_data=None, TOL=1E-9):
     '''
@@ -137,6 +145,7 @@ def evolve_data(data, mapping):
             new = np.zeros_like(old)
             new.ravel()[:] = mapping[old.flatten()]
             data_tdim[tag] = np.vstack([old, new])
+    return data
 
 
 def make_mesh(vertices, cells, ctype, tdim, gdim, mesh_data=None):
@@ -157,7 +166,6 @@ def make_mesh(vertices, cells, ctype, tdim, gdim, mesh_data=None):
     if mesh_data is None: return mesh
 
     # FIXME: should work mesh_data copy?
-
     mesh_functions = {}
     # We have define entities in terms of vertex numbering
     for tdim in mesh_data:
@@ -176,7 +184,6 @@ def make_mesh(vertices, cells, ctype, tdim, gdim, mesh_data=None):
             f_values[entity_indices] = tag
         # Add
         mesh_functions[tdim] = f
-        
     return mesh, mesh_functions
 
 # --------------------------------------------------------------------
@@ -195,8 +202,10 @@ if __name__ == '__main__':
         tile = Mesh()
         h5.read(tile, 'mesh', False)
 
-    for n in (2, 4, 8, ):
-        facet_dim = tile.topology().dim()-1
+    for n in (2, ):
+        cell_dim = tile.topology().dim()
+        facet_dim = cell_dim - 1
+
         surfaces = MeshFunction('size_t', tile, facet_dim, 0)
         h5.read(surfaces, 'facet')
         # Encode the data for evolve_data
@@ -204,14 +213,25 @@ if __name__ == '__main__':
         f2v = tile.topology()(facet_dim, 0)
         # Only want to evolve tag 1 (interfaces) for the facets. 
         facet_data = {1: np.array([f2v(f.index()) for f in SubsetIterator(surfaces, 1)])}
-        data = {facet_dim: facet_data}
+
+        volumes = MeshFunction('size_t', tile, cell_dim, 0)
+        h5.read(volumes, 'physical')
+        # Encode the data for evolve_data
+        tile.init(cell_dim, 0)
+        c2v = tile.topology()(cell_dim, 0)
+        # Only want to evolve tag 1
+        cell_data = {1: np.array([c2v(f.index()) for f in SubsetIterator(volumes, 1)])}
+
+        data = {facet_dim: facet_data,
+                cell_dim: cell_data}
 
         t = Timer('x')
         mesh, foos = TileMesh(tile, (n, n), mesh_data=data)
         info('\nTiling took %g s' % t.stop())
         
     File('test.pvd') << mesh
-    File('test_marker.pvd') << foos[facet_dim]
+    File('test_facet_marker.pvd') << foos[facet_dim]
+    File('test_cell_marker.pvd') << foos[cell_dim]
 
 
     
