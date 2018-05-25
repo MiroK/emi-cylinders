@@ -1,5 +1,6 @@
-from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction, compile_extension_module
+from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction
 from test_periodic import compute_vertex_periodicity
+from tiling_cpp import fill_mesh, fill_mesh_function
 from collections import defaultdict
 from itertools import izip
 import numpy as np
@@ -7,8 +8,7 @@ import operator
 
 # FIXME: 
 #
-# make_mesh is a bottle neck; both writing the mesh and then 
-# creating the mesh functions takes most of the time of TileMesh
+# mesh connectivity to identify entities takes the most time
 #
 # if make_mesh stored MeshValueCollections and there was way to 
 # make mvc to MeshFunctions then a lot of space could be saved
@@ -63,7 +63,7 @@ def TileMesh(tile, shape, mesh_data=None, TOL=1E-9):
         
         vertex_mappings.append(vertex_mapping)
     # The final piece of information is cells
-    cells = tile.cells()
+    cells = np.fromiter(tile.cells().flat, dtype='uintp').reshape(tile.cells().shape)
         
     # Evolve
     while shape:
@@ -156,102 +156,31 @@ def groupby(pairs, index):
     for item in groups.iteritems():
         yield item
 
-code="""
-#include <dolfin/mesh/MeshEditor.h>
-#include <dolfin/mesh/CellType.h>
-
-namespace dolfin {
-  // Fills a SIMPLICIAL mesh
-  void fill_mesh(const Array<double>& coordinates,
-                 const Array<std::size_t>& cells, 
-                 const int tdim, 
-                 const int gdim, 
-                 std::shared_ptr<Mesh> mesh)
-  {
-     int nvertices = coordinates.size()/gdim;     
-
-     int nvertices_per_cell = tdim + 1;
-     int ncells = cells.size()/nvertices_per_cell;   
-
-     MeshEditor editor;
-     if (tdim == 1){
-         editor.open(*mesh, CellType::interval, tdim, gdim);
-     }
-     else if (tdim == 2){
-         editor.open(*mesh, CellType::triangle, tdim, gdim);
-     }
-     else{
-         editor.open(*mesh, CellType::tetrahedron, tdim, gdim);
-     }
-
-     editor.init_vertices(nvertices);
-     editor.init_cells(ncells);
-
-     std::vector<double> vertex(gdim);
-     for(std::size_t index = 0; index < nvertices; index++){
-         for(std::size_t i = 0; i < gdim; i++){
-             vertex[i] = coordinates[gdim*index  + i];
-         }
-         editor.add_vertex(index, vertex);
-     }
-
-     std::vector<std::size_t> cell(nvertices_per_cell);
-     for(std::size_t index = 0; index < ncells; index++){
-         for(std::size_t i = 0; i < nvertices_per_cell; i++){
-             cell[i] = cells[nvertices_per_cell*index  + i];
-         }
-         editor.add_cell(index, cell);
-     }
-
-     editor.close();
-  }
-};
-"""
-
-module = compile_extension_module(code)
-
-
 
 def make_mesh(coordinates, cells, ctype, tdim, gdim, mesh_data=None):
     '''Mesh by MeshEditor from vertices and cells'''
-    t0 = Timer('mesh')
-
     mesh = Mesh()
-    module.fill_mesh(coordinates.flatten(),
-                     np.fromiter(cells.flat, dtype='uintp'),  # FIXME: 64bit integers?
-                     tdim, gdim, mesh)
+    fill_mesh(coordinates.flatten(), cells.flatten(), tdim, gdim, mesh)
 
-    info('\tMesh took %g s' % t0.stop())
-
-    # For now data we're done
+    # For no data we're done
     if mesh_data is None: return mesh
 
-
-    t1 = Timer('data')
     # FIXME: should work mesh_data copy?
-    mesh_functions = defaultdict(list)
+    mesh_functions = {}
     # We have define entities in terms of vertex numbering
     # Order keys such by tdim (the first key)
     for tdim, keys in groupby(mesh_data.keys(), 0):
         # So we'll be getting the entity index by lookup
         mesh.init(tdim)
         mesh.init(0, tdim)
-        v2entity = mesh.topology()(0, tdim)
-        # Our entity should be the single intersection of those connected
-        # to its vertices
-        lookup = lambda e, v2e=v2entity: reduce(operator.and_, (set(v2e(v)) for v in e)).pop()
         # Build the meshfunction from data
+        f = MeshFunction('size_t', mesh, tdim, 0)
         for key in keys:
-            entities_indices = mesh_data[key]
-
-            f = MeshFunction('size_t', mesh, tdim, 0)
-            f_values = f.array()
-
-            entities = map(lookup, entities_indices)
-            f_values[entities] = key[1]  # Tag the entities
-        # Add
+            indices = mesh_data[key]
+            # These entity indices get the 'color'
+            fill_mesh_function(mesh, indices.flatten(), tdim, key[1], f)
         mesh_functions[tdim] = f
-    info('\tData took %g s' % t1.stop())
+
     return mesh, mesh_functions
 
 # --------------------------------------------------------------------
@@ -270,7 +199,7 @@ if __name__ == '__main__':
         tile = Mesh()
         h5.read(tile, 'mesh', False)
 
-    for n in (2, ):
+    for n in (2, 4, 8):
         cell_dim = tile.topology().dim()
         facet_dim = cell_dim - 1
 
@@ -280,7 +209,8 @@ if __name__ == '__main__':
         tile.init(facet_dim, 0)
         f2v = tile.topology()(facet_dim, 0)
         # Only want to evolve tag 1 (interfaces) for the facets. 
-        facet_data = np.array([f2v(f.index()) for f in SubsetIterator(surfaces, 1)])
+        facet_data = np.array([f2v(f.index()) for f in SubsetIterator(surfaces, 1)],
+                              dtype='uintp')
 
         volumes = MeshFunction('size_t', tile, cell_dim, 0)
         h5.read(volumes, 'physical')
@@ -288,9 +218,10 @@ if __name__ == '__main__':
         tile.init(cell_dim, 0)
         c2v = tile.topology()(cell_dim, 0)
         # Only want to evolve tag 1
-        cell_data = np.array([c2v(f.index()) for f in SubsetIterator(volumes, 1)])
+        cell_data = np.array([c2v(f.index()) for f in SubsetIterator(volumes, 1)],
+                             dtype='uintp')
 
-        data = {(facet_dim, 1): facet_data,
+        data = {(facet_dim, 1): facet_data}
                 (cell_dim, 1): cell_data}
 
         t = Timer('x')
