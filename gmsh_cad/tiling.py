@@ -1,6 +1,6 @@
 from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction
 from test_periodic import compute_vertex_periodicity
-from itertools import imap, izip
+from itertools import izip
 import numpy as np
 import operator
 
