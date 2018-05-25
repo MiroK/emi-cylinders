@@ -42,19 +42,16 @@ def compute_entity_periodicity(tdim, mesh, master, slave, to_master):
     
 def compute_vertex_periodicity(mesh, master, slave, to_master):
     '''Compute mapping from slave vertices to master vertices'''
-    tdim = mesh.topology().dim()
-    f = MeshFunction('size_t', mesh, tdim-1, 0)
+    f = MeshFunction('size_t', mesh, 0, 0)  # As a vertex function
     master.mark(f, 2)
     slave.mark(f, 3)
 
-    x = mesh.coordinates()
-
-    mesh.init(tdim-1, 0)
-    f2v = mesh.topology()(tdim-1, 0)
-    master_vertices = list(set(sum((f2v(f.index()).tolist() for f in SubsetIterator(f, 2)), [])))
-    slave_vertices = set(sum((f2v(f.index()).tolist() for f in SubsetIterator(f, 3)), []))
+    master_vertices = [v.index() for v in SubsetIterator(f, 2)]
+    slave_vertices = set(v.index() for v in SubsetIterator(f, 3))
 
     assert len(master_vertices) == len(slave_vertices), (len(master_vertices), len(slave_vertices))
+
+    x = mesh.coordinates()
 
     error, mapping = 0., {}
     while slave_vertices:
@@ -99,8 +96,8 @@ if __name__ == '__main__':
     # periodic boundary computation is not working
 
     # Check x periodicity
-    master = CompiledSubDomain('near(x[0], A, tol) && on_boundary', A=min_[0], tol=tol)
-    slave = CompiledSubDomain('near(x[0], A, tol) && on_boundary', A=max_[0], tol=tol)
+    master = CompiledSubDomain('near(x[0], A, tol)', A=min_[0], tol=tol)
+    slave = CompiledSubDomain('near(x[0], A, tol)', A=max_[0], tol=tol)
 
     shift_x = np.array([max_[0]-min_[0], 0, 0])
     to_master = lambda x, shift=shift_x: x - shift
@@ -117,8 +114,8 @@ if __name__ == '__main__':
     compute_entity_periodicity(2, mesh, master, slave, to_master)
 
     # Check y periodicity
-    master = CompiledSubDomain('near(x[1], A, tol) && on_boundary', A=min_[1], tol=tol)
-    slave = CompiledSubDomain('near(x[1], A, tol) && on_boundary', A=max_[1], tol=tol)
+    master = CompiledSubDomain('near(x[1], A, tol)', A=min_[1], tol=tol)
+    slave = CompiledSubDomain('near(x[1], A, tol)', A=max_[1], tol=tol)
 
     shift_x = np.array([0, max_[1]-min_[1], 0])
     to_master = lambda x, shift=shift_x: x - shift

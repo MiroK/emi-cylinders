@@ -1,5 +1,6 @@
 from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction
 from test_periodic import compute_vertex_periodicity
+from itertools import imap, izip
 import numpy as np
 import operator
 
@@ -88,9 +89,10 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data=None):
     while refine > 1:    
         n = len(x)
         # To make the tile piece we add all but the master vertices
-        new_vertices = np.fromiter(sorted(set(range(n)) - set(master_vertices)), dtype=int)
+        new_vertices = np.fromiter(sorted(set(range(n)) - set(master_vertices)),
+                                   dtype=int, count=n-len(master_vertices))
         # Verices of the glued tiles
-        x = np.r_[x, x[new_vertices] + shift_x]
+        x = np.vstack([x, x[new_vertices] + shift_x])
 
         # NOTE: using getitem and arrays seems to be on par in efficiency
         # with dicts. So then I keep translate as array because efficiency
@@ -102,14 +104,14 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data=None):
 
         # Cells of the glued tiles
         new_cells = np.zeros_like(cells)
-        new_cells.ravel()[:] = map(translate.__getitem__, cells.flat)  # FIXME: numpy access
+        new_cells.ravel()[:] = translate[cells.flatten()]
 
-        cells = np.r_[cells, new_cells]
+        cells = np.vstack([cells, new_cells])
         # Update the periodicty mapping - slaves are new
-        slave_vertices = map(translate.__getitem__, slave_vertices)  # FIXME: numpy access
+        slave_vertices = translate[slave_vertices]
         # For the directions that do not evolve we add the periodic pairs
         for vm in vertex_mappings:
-            vm.update(dict(zip(translate[vm.keys()], translate[vm.values()])))
+            vm.update(dict(izip(translate[vm.keys()], translate[vm.values()])))
         # Add the entities defined in terms of the vertices
         if mesh_data is not None: evolve_data(mesh_data, translate)
             
@@ -133,8 +135,8 @@ def evolve_data(data, mapping):
             old = data_tdim[tag]
             
             new = np.zeros_like(old)
-            new.ravel()[:] = map(mapping.__getitem__, old.flat)
-            data_tdim[tag] = np.r_[old, new]
+            new.ravel()[:] = mapping[old.flatten()]
+            data_tdim[tag] = np.vstack([old, new])
 
 
 def make_mesh(vertices, cells, ctype, tdim, gdim, mesh_data=None):
@@ -154,7 +156,6 @@ def make_mesh(vertices, cells, ctype, tdim, gdim, mesh_data=None):
     # For now data we're done
     if mesh_data is None: return mesh
 
-    # FIXME: do vertex lookup once here!
     # FIXME: should work mesh_data copy?
 
     mesh_functions = {}
@@ -194,7 +195,7 @@ if __name__ == '__main__':
         tile = Mesh()
         h5.read(tile, 'mesh', False)
 
-    for n in (2, 4, 8, 16):
+    for n in (2, 4, 8, ):
         facet_dim = tile.topology().dim()-1
         surfaces = MeshFunction('size_t', tile, facet_dim, 0)
         h5.read(surfaces, 'facet')
