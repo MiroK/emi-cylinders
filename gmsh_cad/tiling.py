@@ -1,6 +1,6 @@
-from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction
+from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction, MeshValueCollection
 from test_periodic import compute_vertex_periodicity
-from itertools import izip
+from itertools import izip, imap
 import numpy as np
 import operator
 
@@ -137,6 +137,7 @@ def evolve_data(data, mapping):
             new = np.zeros_like(old)
             new.ravel()[:] = mapping[old.flatten()]
             data_tdim[tag] = np.vstack([old, new])
+    return data
 
 
 def make_mesh(vertices, cells, ctype, tdim, gdim, mesh_data=None):
@@ -158,27 +159,51 @@ def make_mesh(vertices, cells, ctype, tdim, gdim, mesh_data=None):
 
     # FIXME: should work mesh_data copy?
 
-    mesh_functions = {}
+    mesh_value_collections = {}
     # We have define entities in terms of vertex numbering
-    for tdim in mesh_data:
+    for etdim in mesh_data:
         # So we'll be getting the entity index by lookup
-        mesh.init(tdim)
-        mesh.init(0, tdim)
-        v2entity = mesh.topology()(0, tdim)
+        mesh.init(etdim)
+        mesh.init(0, etdim)
+        v2entity = mesh.topology()(0, etdim)
         # And color corresponding mesh function
-        f = MeshFunction('size_t', mesh, tdim, 0)
-        f_values = f.array()
-        for tag, entities in mesh_data[tdim].iteritems():
+        f = MeshValueCollection('size_t', mesh, etdim)
+        for tag, entities in mesh_data[etdim].iteritems():
             # Our entity should be the single intersection of those connected
             # to its vertices
-            entity_indices = [reduce(operator.and_, (set(v2entity(v)) for v in entity)).pop()
-                              for entity in entities]
-            f_values[entity_indices] = tag
+            entity_indices = (reduce(operator.and_, (set(v2entity(v)) for v in entity)).pop()
+                              for entity in entities)
+            # Consume
+            all(imap(lambda e, t=tag: f.set_value(e, t), entity_indices))
         # Add
-        mesh_functions[tdim] = f
+        mesh_value_collections[etdim] = f
         
-    return mesh, mesh_functions
+    return mesh, mesh_value_collections
 
+
+def mvc_to_meshf(mvc):
+    mesh = mvc.mesh()
+    entity_dim = mvc.dim()  # Of the function
+    f = MeshFunction('size_t', mesh, entity_dim, 0)
+
+    tdim = mesh.topology().dim()
+
+    if tdim > entity_dim:
+        lookup = lambda k: k[0]
+    else:
+        mesh.init(tdim, entity_dim)
+        c2e = mesh.topology()(tdim, enity_dim)
+        lookup = lambda k, c2e=c2e: c2e[k[0]][k[1]]
+
+    mvc = mvc.values()
+
+    entities = map(lookup, mvc.iterkeys())
+
+    f_ = f.array()
+    f_[entities] = mvc.values()
+
+    return f
+    
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
@@ -195,7 +220,7 @@ if __name__ == '__main__':
         tile = Mesh()
         h5.read(tile, 'mesh', False)
 
-    for n in (2, 4, 8, ):
+    for n in (2, ):
         facet_dim = tile.topology().dim()-1
         surfaces = MeshFunction('size_t', tile, facet_dim, 0)
         h5.read(surfaces, 'facet')
@@ -211,7 +236,10 @@ if __name__ == '__main__':
         info('\nTiling took %g s' % t.stop())
         
     File('test.pvd') << mesh
-    File('test_marker.pvd') << foos[facet_dim]
+
+    f = mvc_to_meshf(foos[facet_dim])
+    
+    File('test_marker.pvd') << f
 
 
     
