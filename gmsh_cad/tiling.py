@@ -1,4 +1,4 @@
-from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction
+from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction, compile_extension_module
 from test_periodic import compute_vertex_periodicity
 from collections import defaultdict
 from itertools import izip
@@ -156,22 +156,71 @@ def groupby(pairs, index):
     for item in groups.iteritems():
         yield item
 
+code="""
+#include <dolfin/mesh/MeshEditor.h>
+#include <dolfin/mesh/CellType.h>
 
-def make_mesh(vertices, cells, ctype, tdim, gdim, mesh_data=None):
+namespace dolfin {
+  // Fills a SIMPLICIAL mesh
+  void fill_mesh(const Array<double>& coordinates,
+                 const Array<std::size_t>& cells, 
+                 const int tdim, 
+                 const int gdim, 
+                 std::shared_ptr<Mesh> mesh)
+  {
+     int nvertices = coordinates.size()/gdim;     
+
+     int nvertices_per_cell = tdim + 1;
+     int ncells = cells.size()/nvertices_per_cell;   
+
+     MeshEditor editor;
+     if (tdim == 1){
+         editor.open(*mesh, CellType::interval, tdim, gdim);
+     }
+     else if (tdim == 2){
+         editor.open(*mesh, CellType::triangle, tdim, gdim);
+     }
+     else{
+         editor.open(*mesh, CellType::tetrahedron, tdim, gdim);
+     }
+
+     editor.init_vertices(nvertices);
+     editor.init_cells(ncells);
+
+     std::vector<double> vertex(gdim);
+     for(std::size_t index = 0; index < nvertices; index++){
+         for(std::size_t i = 0; i < gdim; i++){
+             vertex[i] = coordinates[gdim*index  + i];
+         }
+         editor.add_vertex(index, vertex);
+     }
+
+     std::vector<std::size_t> cell(nvertices_per_cell);
+     for(std::size_t index = 0; index < ncells; index++){
+         for(std::size_t i = 0; i < nvertices_per_cell; i++){
+             cell[i] = cells[nvertices_per_cell*index  + i];
+         }
+         editor.add_cell(index, cell);
+     }
+
+     editor.close();
+  }
+};
+"""
+
+module = compile_extension_module(code)
+
+
+
+def make_mesh(coordinates, cells, ctype, tdim, gdim, mesh_data=None):
     '''Mesh by MeshEditor from vertices and cells'''
     t0 = Timer('mesh')
+
     mesh = Mesh()
-    editor = MeshEditor()
-    editor.open(mesh, ctype, tdim, gdim)
+    module.fill_mesh(coordinates.flatten(),
+                     np.fromiter(cells.flat, dtype='uintp'),  # FIXME: 64bit integers?
+                     tdim, gdim, mesh)
 
-    editor.init_vertices(len(vertices))
-    editor.init_cells(len(cells))
-
-    for vi, x in enumerate(vertices): editor.add_vertex(vi, x)
-    
-    for ci, c in enumerate(cells): editor.add_cell(ci, *c)
-
-    editor.close()
     info('\tMesh took %g s' % t0.stop())
 
     # For now data we're done
@@ -221,7 +270,7 @@ if __name__ == '__main__':
         tile = Mesh()
         h5.read(tile, 'mesh', False)
 
-    for n in (2, 4, 8):
+    for n in (2, ):
         cell_dim = tile.topology().dim()
         facet_dim = cell_dim - 1
 
