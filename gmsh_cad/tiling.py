@@ -1,5 +1,6 @@
 from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction
 from test_periodic import compute_vertex_periodicity
+from collections import defaultdict
 from itertools import izip
 import numpy as np
 import operator
@@ -21,9 +22,10 @@ def TileMesh(tile, shape, mesh_data=None, TOL=1E-9):
      tile tile]
 
     The shape is an ntuple describing the number of pieces put next 
-    to each other in the i-th axis. mesh_data : tdim -> (tag -> [entities]) 
+    to each other in the i-th axis. mesh_data : (tdim, tag) -> [entities] 
     is the way to encode mesh data of the tile.
     '''
+    t = Timer('evolve')
     # All the axis shapes needs to be power of two
     assert all((((v & (v - 1)) == 0) and v > 0) for v in shape)
 
@@ -67,7 +69,7 @@ def TileMesh(tile, shape, mesh_data=None, TOL=1E-9):
     while shape:
         # Evolve is a bang method on vertex_mappings, shifts_x
         x, cells, shape = evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data=mesh_data)
-
+    info('\tEvolve took %g s ' % t.stop())
     # Done evolving, we can write data
     tdim = tile.topology().dim()
     ctype = str(tile.ufl_cell())
@@ -121,7 +123,8 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data=None):
         for vm in vertex_mappings:
             vm.update(dict(izip(translate[vm.keys()], translate[vm.values()])))
         # Add the entities defined in terms of the vertices
-        if mesh_data is not None: evolve_data(mesh_data, translate)
+        if mesh_data is not None:
+            evolve_data(mesh_data, translate)
             
         # Iterate
         refine /= 2
@@ -132,24 +135,31 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data=None):
 
 def evolve_data(data, mapping):
     '''
-    If mapping holds tdim -> (tag -> [tuple of indices]) where indices are 
+    If mapping holds (tdim, tag) -> [tuple of indices]) where indices are 
     w.r.t of old numbering and mapping is old to new we simply add the mapped 
     entities.
     '''
-    for tdim in data:
-        data_tdim = data[tdim]
-
-        for tag in data_tdim:
-            old = data_tdim[tag]
+    for key in data.keys():
+        old = data[key]
             
-            new = np.zeros_like(old)
-            new.ravel()[:] = mapping[old.flatten()]
-            data_tdim[tag] = np.vstack([old, new])
+        new = np.zeros_like(old)
+        new.ravel()[:] = mapping[old.flatten()]
+        data[key] = np.vstack([old, new])
     return data
+
+
+def groupby(pairs, index):
+    '''Organize pairs by pairs[index]'''
+    groups = defaultdict(list)
+    for pair in pairs: groups[pair[index]].append(pair)
+
+    for item in groups.iteritems():
+        yield item
 
 
 def make_mesh(vertices, cells, ctype, tdim, gdim, mesh_data=None):
     '''Mesh by MeshEditor from vertices and cells'''
+    t0 = Timer('mesh')
     mesh = Mesh()
     editor = MeshEditor()
     editor.open(mesh, ctype, tdim, gdim)
@@ -162,28 +172,37 @@ def make_mesh(vertices, cells, ctype, tdim, gdim, mesh_data=None):
     for ci, c in enumerate(cells): editor.add_cell(ci, *c)
 
     editor.close()
+    info('\tMesh took %g s' % t0.stop())
+
     # For now data we're done
     if mesh_data is None: return mesh
 
+
+    t1 = Timer('data')
     # FIXME: should work mesh_data copy?
-    mesh_functions = {}
+    mesh_functions = defaultdict(list)
     # We have define entities in terms of vertex numbering
-    for tdim in mesh_data:
+    # Order keys such by tdim (the first key)
+    for tdim, keys in groupby(mesh_data.keys(), 0):
         # So we'll be getting the entity index by lookup
         mesh.init(tdim)
         mesh.init(0, tdim)
         v2entity = mesh.topology()(0, tdim)
-        # And color corresponding mesh function
-        f = MeshFunction('size_t', mesh, tdim, 0)
-        f_values = f.array()
-        for tag, entities in mesh_data[tdim].iteritems():
-            # Our entity should be the single intersection of those connected
-            # to its vertices
-            entity_indices = [reduce(operator.and_, (set(v2entity(v)) for v in entity)).pop()
-                              for entity in entities]
-            f_values[entity_indices] = tag
+        # Our entity should be the single intersection of those connected
+        # to its vertices
+        lookup = lambda e, v2e=v2entity: reduce(operator.and_, (set(v2e(v)) for v in e)).pop()
+        # Build the meshfunction from data
+        for key in keys:
+            entities_indices = mesh_data[key]
+
+            f = MeshFunction('size_t', mesh, tdim, 0)
+            f_values = f.array()
+
+            entities = map(lookup, entities_indices)
+            f_values[entities] = key[1]  # Tag the entities
         # Add
         mesh_functions[tdim] = f
+    info('\tData took %g s' % t1.stop())
     return mesh, mesh_functions
 
 # --------------------------------------------------------------------
@@ -202,7 +221,7 @@ if __name__ == '__main__':
         tile = Mesh()
         h5.read(tile, 'mesh', False)
 
-    for n in (2, ):
+    for n in (2, 4, 8):
         cell_dim = tile.topology().dim()
         facet_dim = cell_dim - 1
 
@@ -212,7 +231,7 @@ if __name__ == '__main__':
         tile.init(facet_dim, 0)
         f2v = tile.topology()(facet_dim, 0)
         # Only want to evolve tag 1 (interfaces) for the facets. 
-        facet_data = {1: np.array([f2v(f.index()) for f in SubsetIterator(surfaces, 1)])}
+        facet_data = np.array([f2v(f.index()) for f in SubsetIterator(surfaces, 1)])
 
         volumes = MeshFunction('size_t', tile, cell_dim, 0)
         h5.read(volumes, 'physical')
@@ -220,18 +239,18 @@ if __name__ == '__main__':
         tile.init(cell_dim, 0)
         c2v = tile.topology()(cell_dim, 0)
         # Only want to evolve tag 1
-        cell_data = {1: np.array([c2v(f.index()) for f in SubsetIterator(volumes, 1)])}
+        cell_data = np.array([c2v(f.index()) for f in SubsetIterator(volumes, 1)])
 
-        data = {facet_dim: facet_data,
-                cell_dim: cell_data}
+        data = {(facet_dim, 1): facet_data,
+                (cell_dim, 1): cell_data}
 
         t = Timer('x')
         mesh, foos = TileMesh(tile, (n, n), mesh_data=data)
-        info('\nTiling took %g s' % t.stop())
+        info('\tTiling took %g s\n' % t.stop())
         
-    File('test.pvd') << mesh
-    File('test_facet_marker.pvd') << foos[facet_dim]
-    File('test_cell_marker.pvd') << foos[cell_dim]
+    # File('test.pvd') << mesh
+    # File('test_facet_marker.pvd') << foos[facet_dim]
+    # File('test_cell_marker.pvd') << foos[cell_dim]
 
 
     
