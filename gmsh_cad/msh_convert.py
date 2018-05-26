@@ -1,7 +1,9 @@
+from dolfin import Mesh, MeshFunction, HDF5File, MeshValueCollection
+from msh_convert_cpp import fill_mvc_from_mf
 import subprocess, os
 
 
-def convert(msh_file, h5_file):
+def convert(msh_file, h5_file, save_mvc=True):
     '''Temporary version of convertin from msh to h5'''
     root, _ = os.path.splitext(msh_file)
     assert os.path.splitext(msh_file)[1] == '.msh'
@@ -13,30 +15,32 @@ def convert(msh_file, h5_file):
     # Success?
     assert os.path.exists(xml_file)
 
-    cmd = '''from dolfin import Mesh, HDF5File;\
-             mesh=Mesh('%(xml_file)s');\
-             out=HDF5File(mesh.mpi_comm(), '%(h5_file)s', 'w');\
-             out.write(mesh, 'mesh');''' % {'xml_file': xml_file,
-                                             'h5_file': h5_file}
+    mesh = Mesh(xml_file)
+    out = HDF5File(mesh.mpi_comm(), h5_file, 'w')
+    out.write(mesh, 'mesh')
+
+    # Save ALL data as facet_functions
+    if not save_mvc:
+        for region in ('facet_region.xml', 'physical_region.xml'):
+            name, _ = region.split('_')
+            r_xml_file = '_'.join([root, region])
+
+            f = MeshFunction('size_t', mesh, r_xml_file)
+            print name, f.array()
+            out.write(f, name)
 
     for region in ('facet_region.xml', 'physical_region.xml'):
         name, _ = region.split('_')
         r_xml_file = '_'.join([root, region])
-        if os.path.exists(r_xml_file):
-            cmd_r = '''from dolfin import MeshFunction;\
-                       f = MeshFunction('size_t', mesh, '%(r_xml_file)s');\
-                       out.write(f, '%(name)s');\
-                       ''' % {'r_xml_file': r_xml_file, 'name': name}
-        
-            cmd = ''.join([cmd, cmd_r])
 
-    cmd = 'python -c "%s"' % cmd
-
-    status = subprocess.call([cmd], shell=True)
-    assert status == 0
-    # Sucess?
-    assert os.path.exists(h5_file)
-
+        f = MeshFunction('size_t', mesh, r_xml_file)
+        # With mesh value collection we only store nonzero tags
+        mvc = MeshValueCollection('size_t', mesh, f.dim())
+        # Fill
+        fill_mvc_from_mf(f, mvc)
+        # And save
+        out.write(f, name)
+                    
     return True
     
 
@@ -52,8 +56,7 @@ def cleanup(files=None, exts=()):
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
-    from dolfin import Mesh, MeshFunction, HDF5File, mpi_comm_world
-    from dolfin import FacetFunction, CellFunction, File
+    from dolfin import File, mpi_comm_world
     import argparse
 
 
