@@ -3,7 +3,7 @@ from msh_convert_cpp import fill_mvc_from_mf
 import subprocess, os
 
 
-def convert(msh_file, h5_file, save_mvc=True):
+def convert(msh_file, h5_file, save_mvc=False):
     '''Temporary version of convertin from msh to h5'''
     root, _ = os.path.splitext(msh_file)
     assert os.path.splitext(msh_file)[1] == '.msh'
@@ -20,17 +20,17 @@ def convert(msh_file, h5_file, save_mvc=True):
     out.write(mesh, 'mesh')
 
     # Save ALL data as facet_functions
+    names = ('surfaces', 'volumes')
     if not save_mvc:
-        for region in ('facet_region.xml', 'physical_region.xml'):
-            name, _ = region.split('_')
+        for name, region in zip(names, ('facet_region.xml', 'physical_region.xml')):
             r_xml_file = '_'.join([root, region])
 
             f = MeshFunction('size_t', mesh, r_xml_file)
-            print name, f.array()
             out.write(f, name)
 
-    for region in ('facet_region.xml', 'physical_region.xml'):
-        name, _ = region.split('_')
+        return True
+
+    for name, region in zip(names, ('facet_region.xml', 'physical_region.xml')):
         r_xml_file = '_'.join([root, region])
 
         f = MeshFunction('size_t', mesh, r_xml_file)
@@ -39,7 +39,7 @@ def convert(msh_file, h5_file, save_mvc=True):
         # Fill
         fill_mvc_from_mf(f, mvc)
         # And save
-        out.write(f, name)
+        out.write(mvc, name)
                     
     return True
     
@@ -62,11 +62,21 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Convert msh file to h5')
     parser.add_argument('io', type=str, nargs='+', help='input [output]')
-
-    parser.add_argument('--save', type=int, help='save as pvd', default=0)
-  
     parser.add_argument('--cleanup', type=str, nargs='+',
                         help='extensions to delete', default=('.xml'))
+
+    # Save the nonzero markers as mesh value collections
+    save_mvc_parser = parser.add_mutually_exclusive_group(required=False)
+    save_mvc_parser.add_argument('--save_mvc', dest='save_mvc', action='store_true')
+    save_mvc_parser.add_argument('--no_save_mvc', dest='save_mvc', action='store_false')
+    parser.set_defaults(save_mvc=False)
+
+    # Save the mesh markers for visualizing
+    save_pvd_parser = parser.add_mutually_exclusive_group(required=False)
+    save_pvd_parser.add_argument('--save_pvd', dest='save_pvd', action='store_true')
+    save_pvd_parser.add_argument('--no_save_pvd', dest='save_pvd', action='store_false')
+    parser.set_defaults(save_pvd=False)
+
     args = parser.parse_args()
 
     # Protecting self
@@ -80,19 +90,31 @@ if __name__ == '__main__':
         root, ext = os.path.splitext(msh_file)
         h5_file = '.'.join([root, 'h5'])
 
-    assert convert(msh_file, h5_file)
+    assert convert(msh_file, h5_file, args.save_mvc)
 
-    h5 = HDF5File(mpi_comm_world(), h5_file, 'r')
-    mesh = Mesh()
-    h5.read(mesh, 'mesh', False)
+    if args.save_pvd:
+        h5 = HDF5File(mpi_comm_world(), h5_file, 'r')
+        mesh = Mesh()
+        h5.read(mesh, 'mesh', False)
 
-    surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-    h5.read(surfaces, 'facet')
+        surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+        volumes = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
 
-    volumes = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
-    h5.read(volumes, 'physical')
+        if not args.save_mvc:
+            h5.read(surfaces, 'surfaces')
+            h5.read(volumes, 'volumes')
+        # The data is mesh value collections
+        else:
+            from tiling_cpp import fill_mf_from_mvc
 
-    if args.save:
+            surfaces_mvc = MeshValueCollection('size_t', mesh, mesh.topology().dim()-1)
+            h5.read(surfaces_mvc, 'surfaces')
+            fill_mf_from_mvc(surfaces_mvc, surfaces)
+
+            volumes_mvc = MeshValueCollection('size_t', mesh, mesh.topology().dim())
+            h5.read(volumes_mvc, 'volumes')
+            fill_mf_from_mvc(volumes_mvc, volumes)
+
         File('results/%s_surf.pvd' % root) << surfaces
         File('results/%s_vols.pvd' % root) << volumes    
 
