@@ -5,7 +5,7 @@ parameters['form_compiler']['cpp_optimize'] = True
 parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=native'
 parameters['ghost_mode'] = 'shared_facet'
 
-mesh_file = 'cell_grid_2d.h5'
+mesh_file = 'tile_1.h5'
 
 comm = mpi_comm_world()
 h5 = HDF5File(comm, mesh_file, 'r')
@@ -17,13 +17,16 @@ mesh.coordinates()[:] *= 1E-4
 # Facets in the mesh have tags 0, 1, 2. One is for interfaces between
 # cells and cells and the exterior. Two is used for marking boundary facets
 # of the domain - this is where typically zero DirichletBCs are applied
-# for the potential
+# for the potential. The domain is split into 2 subdomains marked as 1 
+# and 2 (cell interior, cell exterior). These differ by conductivities
+
+iface_tag, cell_tag = 1, 1
+bdry_tag, ext_tag = 2, 2
+
 surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1)
-h5.read(surfaces, 'facet')
-# The domain is split into 2 subdomains marked as 1 and 2 (cell interior,
-# cell exterior). These differ by conductivities
+h5.read(surfaces, 'surfaces')
 volumes = MeshFunction('size_t', mesh, mesh.topology().dim())
-h5.read(volumes, 'physical')
+h5.read(volumes, 'volumes')
 
 cell = mesh.ufl_cell()
 # We have 3 spaces S for sigma = -kappa*grad(u)   [~electric field]
@@ -37,8 +40,8 @@ W = FunctionSpace(mesh, MixedElement([Sel, Vel, Qel]))
 sigma, u, p = TrialFunctions(W)
 tau, v, q = TestFunctions(W)
 
-# Grounding for potential
-bcs = [DirichletBC(W.sub(2), Constant(0), surfaces, 2)]
+# W.sub(0) bcs set strongly correspond to insulation. Skipping (tau.n)*u on 
+# bdry means potential there is weakly zero.
 
 # Make measures aware of subdomains
 dx = Measure('dx', domain=mesh, subdomain_data=volumes)
@@ -67,22 +70,22 @@ p0 = interpolate(Constant(1), Q)
 I_ion = p0
 
 # The system
-a = ((1/cond_int)*inner(sigma, tau)*dx(1)+(1/cond_ext)*inner(sigma, tau)*dx(2)
-     - inner(div(tau), u)*dx(1) - inner(div(tau), u)*dx(2)
-     + inner(p('+'), dot(tau('+'), n))*dS(1)
-     - inner(div(sigma), v)*dx(1) - inner(div(sigma), v)*dx(2)
-     + inner(q('+'), dot(sigma('+'), n))*dS(1)
-     - (C_m/dt_fem)*inner(q('+'), p('+'))*dS(1))
+a = ((1/cond_int)*inner(sigma, tau)*dx(cell_tag)+(1/cond_ext)*inner(sigma, tau)*dx(ext_tag)
+     - inner(div(tau), u)*dx(cell_tag) - inner(div(tau), u)*dx(ext_tag)
+     + inner(p('+'), dot(tau('+'), n))*dS(iface_tag)
+     - inner(div(sigma), v)*dx(cell_tag) - inner(div(sigma), v)*dx(ext_tag)
+     + inner(q('+'), dot(sigma('+'), n))*dS(iface_tag)
+     - (C_m/dt_fem)*inner(q('+'), p('+'))*dS(iface_tag))
 
-L = inner(q('+'), I_ion('+')-(C_m/dt_fem)*p0('+'))*dS(1)
+L = inner(q('+'), I_ion('+')-(C_m/dt_fem)*p0('+'))*dS(iface_tag)
 
 # Additional terms to set to zero the dofs of W.sub(2) which are not on
 # the interfaces
-a -= inner(p('+'), q('+'))*dS(0) + inner(p, q)*ds(2)
-L -= inner(Constant(0)('+'), q('+'))*dS(0) + inner(Constant(0), q)*ds(2)
+a -= inner(p('+'), q('+'))*dS(0) + inner(p, q)*ds(bdry_tag)
+L -= inner(Constant(0)('+'), q('+'))*dS(0) + inner(Constant(0), q)*ds(bdry_tag)
 
 A, b = PETScMatrix(), PETScVector()
-assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
+assemble_system(a, L, A_tensor=A, b_tensor=b)
 
 # import numpy as np
 # for i in range(A.size(0)):
