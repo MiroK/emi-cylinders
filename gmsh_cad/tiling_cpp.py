@@ -1,6 +1,7 @@
 from dolfin import compile_extension_module
 
 code="""
+#include <dolfin/mesh/Mesh.h>
 #include <dolfin/mesh/MeshEditor.h>
 #include <dolfin/mesh/CellType.h>
 #include <dolfin/mesh/MeshTopology.h>
@@ -8,6 +9,9 @@ code="""
 #include <dolfin/mesh/MeshValueCollection.h>
 #include <vector>
 #include <algorithm>
+#include <unordered_set>
+#include <map>
+
 
 namespace dolfin {
   // Fills a SIMPLICIAL mesh
@@ -156,7 +160,56 @@ namespace dolfin {
   void fill_mf_from_mvc(const std::shared_ptr<MeshValueCollection<std::size_t>> mvc,
                         std::shared_ptr<MeshFunction<std::size_t>> mesh_f)
   {
-    (*mesh_f) = (*mvc);
+    const std::shared_ptr<const Mesh> _mesh = mesh_f->mesh();
+    const std::size_t _dim = mesh_f->dim();
+    const std::size_t _size = _mesh->num_entities(_dim);
+    _mesh->init(_dim);
+
+    // Get mesh connectivity D --> d
+    const std::size_t d = _dim;
+    const std::size_t D = _mesh->topology().dim();
+    dolfin_assert(d <= D);
+
+    // Generate connectivity if it does not exist
+    _mesh->init(D, d);
+    const MeshConnectivity& connectivity = _mesh->topology()(D, d);
+    dolfin_assert(!connectivity.empty());
+
+    // Iterate over all values
+    std::unordered_set<std::size_t> entities_values_set;
+    std::map<std::pair<std::size_t, std::size_t>, std::size_t>::const_iterator it;
+    const std::map<std::pair<std::size_t, std::size_t>, std::size_t>& values = mvc->values();
+    for (it = values.begin(); it != values.end(); ++it)
+    {
+      // Get value collection entry data
+      const std::size_t cell_index = it->first.first;
+      const std::size_t local_entity = it->first.second;
+      const std::size_t value = it->second;
+
+      std::size_t entity_index = 0;
+      if (d != D)
+      {
+        // Get global (local to to process) entity index
+        dolfin_assert(cell_index < _mesh->num_cells());
+        entity_index = connectivity(cell_index)[local_entity];
+      }
+      else
+      {
+        entity_index = cell_index;
+        dolfin_assert(local_entity == 0);
+      }
+
+      dolfin_assert(entity_index < _size);
+      mesh_f->set_value(entity_index, value);
+
+      // Add entity index to set (used to check that all values are set)
+      entities_values_set.insert(entity_index);
+    }
+
+    // Check that all values have been set, if not issue a debug message
+    if (entities_values_set.size() != _size)
+      dolfin_debug("Mesh value collection does not contain all values for all entities");
+
   }
 };
 """

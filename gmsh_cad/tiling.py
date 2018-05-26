@@ -221,6 +221,7 @@ def as_meshf(mvc, init_value=0):
     # Base case
     mesh_f = MeshFunction('size_t', mvc.mesh(), mvc.dim(), init_value)
     fill_mf_from_mvc(mvc, mesh_f)
+
     return mesh_f
 
 # --------------------------------------------------------------------
