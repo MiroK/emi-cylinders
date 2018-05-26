@@ -1,6 +1,8 @@
-from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction
+from tiling_cpp import (fill_mesh, fill_mesh_function, fill_mesh_valuecollection,
+                        fill_mf_from_mvc)
 from test_periodic import compute_vertex_periodicity
-from tiling_cpp import fill_mesh, fill_mesh_function
+
+from dolfin import CompiledSubDomain, Mesh, MeshEditor, MeshFunction, MeshValueCollection
 from collections import defaultdict
 from itertools import izip
 import numpy as np
@@ -25,15 +27,19 @@ def TileMesh(tile, shape, mesh_data=None, TOL=1E-9):
     to each other in the i-th axis. mesh_data : (tdim, tag) -> [entities] 
     is the way to encode mesh data of the tile.
     '''
-    t = Timer('evolve')
     # All the axis shapes needs to be power of two
     assert all((((v & (v - 1)) == 0) and v > 0) for v in shape)
-
+    # Sanity for glueing
     gdim = tile.geometry().dim()
     assert len(shape) <= gdim
+    # While evolve is general mesh writing is limited to simplices only (FIXME)
+    # so we bail out early
+    assert str(tile.ufl_cell()) in ('interval', 'triangle', 'tetrahedron')
 
+    t = Timer('evolve')
     # Do nothing
-    if all(v == 1 for v in shape): return tile
+    if all(v == 1 for v in shape):
+        return tile, mesh_data
 
     # We want to evolve cells, vertices of the mesh using geometry information
     # and periodicity info
@@ -70,11 +76,11 @@ def TileMesh(tile, shape, mesh_data=None, TOL=1E-9):
         # Evolve is a bang method on vertex_mappings, shifts_x
         x, cells, shape = evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data=mesh_data)
     info('\tEvolve took %g s ' % t.stop())
-    # Done evolving, we can write data
-    tdim = tile.topology().dim()
-    ctype = str(tile.ufl_cell())
 
-    return make_mesh(x, cells, ctype, tdim, gdim, mesh_data=mesh_data)
+    # Mesh data is evolved, (x cells) -> to mesh
+    mesh = make_mesh(x, cells, tdim=tile.topology().dim(), gdim=gdim)
+
+    return mesh, mesh_data
 
         
 def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data=None):
@@ -148,6 +154,30 @@ def evolve_data(data, mapping):
     return data
 
 
+def make_mesh(coordinates, cells, tdim, gdim):
+    '''Mesh by MeshEditor from vertices and cells'''
+    mesh = Mesh()
+    assert mesh.mpi_comm().tompi4py().size == 1
+
+    fill_mesh(coordinates.flatten(), cells.flatten(), tdim, gdim, mesh)
+    
+    return mesh
+
+
+def mf_from_data(mesh, data):
+    '''Build tdim -> mesh function from the data of TileMesh'''
+    return _mx_from_data(mesh, data,
+                         fill=fill_mesh_function,
+                         init_container=lambda m, t: MeshFunction('size_t', m, t, 0))
+
+
+def mvc_from_data(mesh, data):
+    '''Build tdim -> mesh value collection from data of TileMesh'''
+    return _mx_from_data(mesh, data,
+                         fill=fill_mesh_valuecollection,
+                         init_container=lambda m, t: MeshValueCollection('size_t', m, t))
+
+
 def groupby(pairs, index):
     '''Organize pairs by pairs[index]'''
     groups = defaultdict(list)
@@ -156,32 +186,42 @@ def groupby(pairs, index):
     for item in groups.iteritems():
         yield item
 
+ 
+def _mx_from_data(mesh, data, fill, init_container):
+    '''Fill the contained over mesh by data'''
+    assert mesh.mpi_comm().tompi4py().size == 1
 
-def make_mesh(coordinates, cells, ctype, tdim, gdim, mesh_data=None):
-    '''Mesh by MeshEditor from vertices and cells'''
-    mesh = Mesh()
-    fill_mesh(coordinates.flatten(), cells.flatten(), tdim, gdim, mesh)
-
-    # For no data we're done
-    if mesh_data is None: return mesh
-
-    # FIXME: should work mesh_data copy?
-    mesh_functions = {}
+    containers = {}
     # We have define entities in terms of vertex numbering
     # Order keys such by tdim (the first key)
-    for tdim, keys in groupby(mesh_data.keys(), 0):
+    for tdim, keys in groupby(data.keys(), 0):
         # So we'll be getting the entity index by lookup
         mesh.init(tdim)
         mesh.init(0, tdim)
         # Build the meshfunction from data
-        f = MeshFunction('size_t', mesh, tdim, 0)
+        f = init_container(mesh, tdim)
         for key in keys:
             indices = mesh_data[key]
             # These entity indices get the 'color'
-            fill_mesh_function(mesh, indices.flatten(), tdim, key[1], f)
-        mesh_functions[tdim] = f
+            fill(mesh, indices.flatten(), tdim, key[1], f)
+        containers[tdim] = f
 
-    return mesh, mesh_functions
+    return containers
+
+
+def as_meshf(mvc, init_value=0):
+    '''Make a mesh function out of mesh value collection'''
+    if isinstance(mvc, (tuple, list)):
+        return [as_meshf(x, init_value) for x in mvc]
+
+    if isinstance(mvc, dict):
+        print as_meshf(mvc.values())
+        return dict(zip(mvc.keys(), as_meshf(mvc.values())))
+
+    # Base case
+    mesh_f = MeshFunction('size_t', mvc.mesh(), mvc.dim(), init_value)
+    fill_mf_from_mvc(mvc, mesh_f)
+    return mesh_f
 
 # --------------------------------------------------------------------
 
@@ -199,7 +239,7 @@ if __name__ == '__main__':
         tile = Mesh()
         h5.read(tile, 'mesh', False)
 
-    for n in (2, 4, 8):
+    for n in (2, ):
         cell_dim = tile.topology().dim()
         facet_dim = cell_dim - 1
 
@@ -221,15 +261,18 @@ if __name__ == '__main__':
         cell_data = np.array([c2v(f.index()) for f in SubsetIterator(volumes, 1)],
                              dtype='uintp')
 
-        data = {(facet_dim, 1): facet_data}
+        data = {(facet_dim, 1): facet_data,
                 (cell_dim, 1): cell_data}
 
         t = Timer('x')
-        mesh, foos = TileMesh(tile, (n, n), mesh_data=data)
+        mesh, mesh_data = TileMesh(tile, (n, n), mesh_data=data)
         info('\tTiling took %g s\n' % t.stop())
+
+        mvcs = mvc_from_data(mesh, mesh_data)
+        foos = as_meshf(mvcs)
         
     # File('test.pvd') << mesh
-    # File('test_facet_marker.pvd') << foos[facet_dim]
+    File('test_facet_marker.pvd') << foos[facet_dim]
     # File('test_cell_marker.pvd') << foos[cell_dim]
 
 
