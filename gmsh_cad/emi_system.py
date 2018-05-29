@@ -6,8 +6,7 @@ parameters['form_compiler']['cpp_optimize'] = True
 parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=native'
 parameters['ghost_mode'] = 'shared_facet'
 
-mesh_file = 'tile_2x2.h5'
-container_type = 'mf'
+mesh_file = 'tile_1_narrow_2_2.h5'#'tile_2x2.h5'
 
 comm = mpi_comm_world()
 h5 = HDF5File(comm, mesh_file, 'r')
@@ -23,7 +22,7 @@ mesh.coordinates()[:] *= 1E-4
 # and 2 (cell interior, cell exterior). These differ by conductivities
 
 iface_tag, cell_tag = 1, 1
-bdry_tag, ext_tag = 2, 2
+bdry_tag, ext_tag = 0, 2
 
 surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
 h5.read(surfaces, 'surfaces')
@@ -97,36 +96,13 @@ L -= inner(Constant(0)('+'), q('+'))*dS(0) + inner(Constant(0), q)*ds(bdry_tag)
 A, b = PETScMatrix(), PETScVector()
 assemble_system(a, L, A_tensor=A, b_tensor=b)
 
-# dms = [set(W.sub(i).dofmap().dofs()) for i in range(3)]
-# for i, dmi in enumerate(dms):
-#     for dmj in dms[i+1:]:
-#         print dmi & dmj
+dm = W.sub(2).dofmap().dofs()
 
-# import numpy as np
-# for i in range(A.size(0)):
-#     cols, vals = A.getrow(i)
-#     if np.linalg.norm(vals, 1) == 0:
-#         print (i, vals), [(i in dm) for dm in dms]
-# print A.size(0), A.norm('linf')
+import numpy as np
+for i in range(A.size(0)):
+    cols, vals = A.getrow(i)
+    if np.linalg.norm(vals, 1) == 0:
+        print (i, vals), i in dm
+print A.size(0), A.norm('linf')
 
 # print np.sort(np.abs(np.linalg.eigvals(A.array())))[0:20]
-
-f = Expression(('sin(pi*(x[0]))', 'sin(pi*(x[1]))', 'sin(pi*(x[2]))',
-                'sin(pi*(x[0]+x[1]+x[2]))',
-                'sin(pi*(x[0]))'), degree=1)
-
-g = Expression(('cos(pi*(x[0]))', 'sin(pi*(x[1]))', 'cos(pi*(x[2]))',
-                'sin(pi*(x[0]+x[1]+x[2]))',
-                'cos(pi*(x[0]))'), degree=1)
-
-
-x = interpolate(f, W).vector()
-as_backend_type(x).update_ghost_values()
-
-y = interpolate(g, W).vector()
-as_backend_type(y).update_ghost_values()
-
-A.mult(x, b)
-as_backend_type(b).update_ghost_values()
-
-info("%g %g" %  (b.inner(y), b.norm('l2')))

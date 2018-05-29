@@ -77,5 +77,5 @@ interfaces[] = Unique(Abs(Boundary{ Volume{cylinder}; }));
 boundary[] = Unique(Abs(Boundary{ Volume{box}; }));
 boundary[] -= {interfaces[]};
 
-Physical Surface(2) = {boundary[]};
+//Physical Surface(2) = {boundary[]};
 Physical Surface(1) = {interfaces[]};
