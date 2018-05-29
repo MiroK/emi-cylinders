@@ -28,13 +28,13 @@ namespace dolfin {
 
      MeshEditor editor;
      if (tdim == 1){
-         editor.open(*mesh, CellType::interval, tdim, gdim);
+         editor.open(*mesh, CellType::Type::interval, tdim, gdim);
      }
      else if (tdim == 2){
-         editor.open(*mesh, CellType::triangle, tdim, gdim);
+         editor.open(*mesh, CellType::Type::triangle, tdim, gdim);
      }
      else{
-         editor.open(*mesh, CellType::tetrahedron, tdim, gdim);
+         editor.open(*mesh, CellType::Type::tetrahedron, tdim, gdim);
      }
 
      editor.init_vertices(nvertices);

@@ -16,7 +16,7 @@ import operator
 # make mvc to MeshFunctions then a lot of space could be saved
 
 
-def TileMesh(tile, shape, mesh_data=None, TOL=1E-9):
+def TileMesh(tile, shape, mesh_data={}, TOL=1E-9):
     '''
     [tile tile;
      tile tile;
@@ -83,7 +83,7 @@ def TileMesh(tile, shape, mesh_data=None, TOL=1E-9):
     return mesh, mesh_data
 
         
-def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data=None):
+def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data={}):
     '''Evolve tile along the last exis'''
     axis, gdim = len(shape) - 1, x.shape[1]
     assert gdim > axis >= 0
@@ -129,7 +129,7 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data=None):
         for vm in vertex_mappings:
             vm.update(dict(izip(translate[vm.keys()], translate[vm.values()])))
         # Add the entities defined in terms of the vertices
-        if mesh_data is not None:
+        if mesh_data:
             evolve_data(mesh_data, translate)
             
         # Iterate
@@ -201,7 +201,7 @@ def _mx_from_data(mesh, data, fill, init_container):
         # Build the meshfunction from data
         f = init_container(mesh, tdim)
         for key in keys:
-            indices = mesh_data[key]
+            indices = data[key]
             # These entity indices get the 'color'
             fill(mesh, indices.flatten(), tdim, key[1], f)
         containers[tdim] = f
@@ -215,7 +215,6 @@ def as_meshf(mvc, init_value=0):
         return [as_meshf(x, init_value) for x in mvc]
 
     if isinstance(mvc, dict):
-        print as_meshf(mvc.values())
         return dict(zip(mvc.keys(), as_meshf(mvc.values())))
 
     # Base case
@@ -228,53 +227,62 @@ def as_meshf(mvc, init_value=0):
 
 if __name__ == '__main__':
     from dolfin import (File, HDF5File, mpi_comm_world, Mesh, UnitSquareMesh,
-                        Timer, info, SubsetIterator)
+                        Timer, info, SubsetIterator, CellVolume, dx, assemble,
+                        ds, dS, FacetArea, avg, SubsetIterator)
 
-    if False:
-        tile = UnitSquareMesh(1, 1)
-    else:
-        mesh_file = 'tile_2x2.h5'  #'cell_grid_2d.h5'
-    
+    def test(path, type='mf'):
+        '''Evolve the tile in (n, n) pattern checking volume/surface properties'''
+
         comm = mpi_comm_world()
-        h5 = HDF5File(comm, mesh_file, 'r')
+        h5 = HDF5File(comm, path, 'r')
         tile = Mesh()
         h5.read(tile, 'mesh', False)
 
-    for n in (2, ):
-        cell_dim = tile.topology().dim()
-        facet_dim = cell_dim - 1
-
-        surfaces = MeshFunction('size_t', tile, facet_dim, 0)
-        h5.read(surfaces, 'facet')
-        # Encode the data for evolve_data
-        tile.init(facet_dim, 0)
-        f2v = tile.topology()(facet_dim, 0)
-        # Only want to evolve tag 1 (interfaces) for the facets. 
-        facet_data = np.array([f2v(f.index()) for f in SubsetIterator(surfaces, 1)],
-                              dtype='uintp')
-
-        volumes = MeshFunction('size_t', tile, cell_dim, 0)
-        h5.read(volumes, 'physical')
-        # Encode the data for evolve_data
-        tile.init(cell_dim, 0)
-        c2v = tile.topology()(cell_dim, 0)
-        # Only want to evolve tag 1
-        cell_data = np.array([c2v(f.index()) for f in SubsetIterator(volumes, 1)],
-                             dtype='uintp')
-
-        data = {(facet_dim, 1): facet_data,
-                (cell_dim, 1): cell_data}
-
-        t = Timer('x')
-        mesh, mesh_data = TileMesh(tile, (n, n), mesh_data=data)
-        info('\tTiling took %g s\n' % t.stop())
-
-        mvcs = mvc_from_data(mesh, mesh_data)
-        foos = as_meshf(mvcs)
+        init_container = lambda type, dim: (MeshFunction('size_t', tile, dim, 0)
+                                            if type == 'mf' else
+                                            MeshValueCollection('size_t', tile, dim))
         
-    # File('test.pvd') << mesh
-    File('test_facet_marker.pvd') << foos[facet_dim]
-    # File('test_cell_marker.pvd') << foos[cell_dim]
+        for n in (2, 4):
+            data = {}
+            checks = {}
+            for dim, name in zip((2, 3), ('surfaces', 'volumes')):
+                # Get the collection
+                collection = init_container(type, dim)
+                h5.read(collection, name)
+                
+                if type == 'mvc': collection = as_meshf(collection)
+            
+                # Data to evolve
+                tile.init(dim, 0)
+                e2v = tile.topology()(dim, 0)
+                # Only want to evolve tag 1 (interfaces) for the facets. 
+                data[(dim, 1)] = np.array([e2v(e.index()) for e in SubsetIterator(collection, 1)],
+                                          dtype='uintp')
+                
+                if dim == 2:
+                    check = lambda m, f: assemble(FacetArea(m)*ds(domain=m, subdomain_data=f, subdomain_id=1)+
+                                                  avg(FacetArea(m))*dS(domain=m, subdomain_data=f, subdomain_id=1))
+                else:
+                    check = lambda m, f: assemble(CellVolume(m)*dx(domain=m, subdomain_data=f, subdomain_id=1))
 
+                checks[dim] = lambda m, f, t=tile, c=collection, n=n, check=check: abs(check(m, f)-n**2*check(t, c))/(n**2*check(t, c))
 
+            t = Timer('x')
+            mesh, mesh_data = TileMesh(tile, (n, n), mesh_data=data)
+            info('\tTiling took %g s. Ncells %d, nvertices %d, \n' % (t.stop(), mesh.num_vertices(), mesh.num_cells()))
+            
+            foos = mf_from_data(mesh, mesh_data)
+            # Mesh Functions
+            from_mf = np.array([checks[dim](mesh, foos[dim]) for dim in (2, 3)])
+
+            mvcs = mvc_from_data(mesh, mesh_data)
+            foos = as_meshf(mvcs)
+            # Mesh ValueCollections
+            from_mvc = np.array([checks[dim](mesh, foos[dim]) for dim in (2, 3)])
+
+            assert np.linalg.norm(from_mf - from_mvc) < 1E-13
+            # I ignore shared facets so there is bound to be some error in facets
+            # Volume should match well
+            print from_mf
     
+    test('tile_2x2.h5')
