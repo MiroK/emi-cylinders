@@ -78,8 +78,9 @@ def compute_vertex_periodicity(mesh, master, slave, to_master):
 if __name__ == '__main__':
     from dolfin import *
 
-    mesh_file = 'tile_2x2.h5'
-    #mesh_file = 'tile_1.h5'
+    mesh_file = 'tile_1_narrow.h5'
+    # mesh_file = 'tile_2x2.h5'
+    # mesh_file = 'tile_1.h5'
 
     comm = mpi_comm_world()
     h5 = HDF5File(comm, mesh_file, 'r')
