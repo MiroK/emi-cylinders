@@ -98,11 +98,11 @@ assemble_system(a, L, A_tensor=A, b_tensor=b)
 
 dm = W.sub(2).dofmap().dofs()
 
-import numpy as np
-for i in range(A.size(0)):
-    cols, vals = A.getrow(i)
-    if np.linalg.norm(vals, 1) == 0:
-        print (i, vals), i in dm
-print A.size(0), A.norm('linf')
+# import numpy as np
+# for i in range(A.size(0)):
+#     cols, vals = A.getrow(i)
+#     if np.linalg.norm(vals, 1) == 0:
+#         print (i, vals), i in dm
+# print A.size(0), A.norm('linf')
 
 # print np.sort(np.abs(np.linalg.eigvals(A.array())))[0:20]
