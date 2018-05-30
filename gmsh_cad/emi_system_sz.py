@@ -12,7 +12,8 @@ parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=nati
 parameters['ghost_mode'] = 'shared_facet'
 opts = PETSc.Options()
 
-mesh_file = '500Kdofs/cell_grid.h5'
+mesh_file = '2Dtest/cell_grid_2d.h5'
+#mesh_file = '500Kdofs/cell_grid.h5'
 #mesh_file = '8Mdofs/cell_grid.h5'
 #mesh_file = 'cell_grid_2d.h5'
 
@@ -106,6 +107,25 @@ as_backend_type(A).mat().setOptionsPrefix("test_")
 as_backend_type(A).mat().setType("is")
 as_backend_type(A).mat().setFromOptions()
 assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
+
+## test unassembled format
+#Aij, bij = PETScMatrix(), PETScVector()
+#assemble_system(a, L, bcs, A_tensor=Aij, b_tensor=bij)
+#A1 = PETSc.Mat()
+#PETSc.Sys.Print("CONVERTING")
+#as_backend_type(A).mat().convert('aij',A1)
+#A1.axpy(-1,as_backend_type(Aij).mat())
+#PETSc.Sys.Print('Norm assembly: %f' % A1.norm(PETSc.NormType.INFINITY))
+#del A1, Aij
+
+## test reassembly
+#A1 = as_backend_type(A).mat().duplicate(copy=True)
+#as_backend_type(A).mat().zeroEntries()
+#assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
+#
+#A1.axpy(-1,as_backend_type(A).mat())
+#PETSc.Sys.Print('Norm reassembly: %f' % A1.norm(PETSc.NormType.INFINITY))
+#A1.viewFromOptions("-diff_view")
 
 as_backend_type(A).mat().viewFromOptions("-my_view")
 
