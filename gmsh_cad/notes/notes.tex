@@ -122,38 +122,70 @@ is somewhat similar to a standard mixed Darcy problem and is it scalable?
 
 \section*{Practice}
 
-Gmsh version with CAD support (version 3.0.0 and higher) is used to create
-the geometry. Of the parameters in the script \texttt{cell\textunderscore grid.geo}
-the interesting ones are \emph{nx}, \emph{ny} which control the number of cells
-and thus the length of the interface, see
+Gmsh version with CAD support (version 3.0.7 and higher) is used to create
+the geometry. Since using Gmsh for generation and subsequent meshing of the 
+geometry with order 1000 cylinders is not feasible the mesh is created in two 
+steps as follows. First we generate a mesh (referred to later as \emph{tile}) 
+for one cylinder such that the facets in $x$ and $y$ directions are meshed periodically
 \[
-\texttt{gmsh -setnumber nx 2 -setnumber ny 2 cell\textunderscore grid.geo}
+\texttt{gmsh -3 -clscale 0.25 tile\textunderscore 1\textunderscore narrow.geo}
 \]
-For mesh generation run
+With the command below one gets a mesh with element size approximately 3$\mu m$.
+\begin{center}
+\includegraphics[width=\textwidth]{tile_1.png}
+\end{center}
+To proceed the mesh is stored in HDF5 format as
 \[
-\texttt{gmsh -3 -setnumber nx 2 -setnumber ny 2 -clscale 0.5 cell\textunderscore grid.geo}
+\texttt{python msh\textunderscore convert.py tile\textunderscore 1\textunderscore narrow.h5}
 \]
-where the number $0.5$ passed to \emph{clscale} instructs to half the characteristic
-mesh sizes set in the script (\emph{size}\textunderscore\emph{box},
-\emph{size}\textunderscore\emph{cell}). The number thus controls resolution
-of the mesh. Two dimensional geometries are generated similarly using
+Next with glue together the \emph{tiles} together in the periodic directions to 
+get the full mesh:
 \[
-\texttt{gmsh -setnumber nx 2 -setnumber ny 2 cell\textunderscore grid\textunderscore 2d.geo}
+\texttt{python tiling.py tile\textunderscore 1\textunderscore narrow.msh -n 128 -m 128},
 \]
-for inspecting and 
-\[
-\texttt{gmsh -2 -setnumber nx 2 -setnumber ny 2 -clscale 1.0 cell\textunderscore grid\textunderscore 2d.geo}
-\]
-for generation of the mesh.
+where $n, m$ specify the number of tiles in $x$ and $y$ directions. This command 
+generated the mesh in approx 500 seconds (most of which was spent generating markers for the 
+cell interiors and interfaces) using about 30GB RAM. The mesh takes about 17GB of disk space.
+A piece\footnote{I cannot render data from all 32 CPUs at once} of this mesh is shown below 
+using some of the cell surfaces (coloring by CPU rank) 
+\begin{center}
+\includegraphics[width=\textwidth]{piece.png}
+\end{center}
 
-When Gmsh is done, I convert the \emph{msh} file to HDF5 file format
-using the
-\[
-\texttt{python msh\textunderscore convert.py cell\textunderscore grid.msh}
-\]
+We remark that we observed factor 4 increase in the execution time/RAM/storage upon doubling 
+the $n$ and $m$ counts. 
 
-The script for assembling the EMI system with the generated gemetry is
+The computational domain generated above is such that the cells have interfaces which are on 
+the boundary of the domain. We currently asume that all the boundary surfaces (including the cells' 
+ones) have zero potential. The script for assembling the EMI system with the generated gemetry is
 in \texttt{emi\textunderscore system.py}.
+
+% Of the parameters in the script \texttt{cell\textunderscore grid.geo}
+% the interesting ones are \emph{nx}, \emph{ny} which control the number of cells
+% and thus the length of the interface, see
+% \[
+% \texttt{gmsh -setnumber nx 2 -setnumber ny 2 cell\textunderscore grid.geo}
+% \]
+% For mesh generation run
+% \[
+% \texttt{gmsh -3 -setnumber nx 2 -setnumber ny 2 -clscale 0.5 cell\textunderscore grid.geo}
+% \]
+% where the number $0.5$ passed to \emph{clscale} instructs to half the characteristic
+% mesh sizes set in the script (\emph{size}\textunderscore\emph{box},
+% \emph{size}\textunderscore\emph{cell}). The number thus controls resolution
+% of the mesh. Two dimensional geometries are generated similarly using
+% \[
+% \texttt{gmsh -setnumber nx 2 -setnumber ny 2 cell\textunderscore grid\textunderscore 2d.geo}
+% \]
+% for inspecting and 
+% \[
+% \texttt{gmsh -2 -setnumber nx 2 -setnumber ny 2 -clscale 1.0 cell\textunderscore grid\textunderscore 2d.geo}
+% \]
+% for generation of the mesh.
+
+% When Gmsh is done, I convert the \emph{msh} file to HDF5 file format
+% using the
+
 
 \end{document}
 
