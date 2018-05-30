@@ -145,7 +145,12 @@ get the full mesh:
 \]
 where $n, m$ specify the number of tiles in $x$ and $y$ directions. This command 
 generated the mesh in approx 500 seconds (most of which was spent generating markers for the 
-cell interiors and interfaces) using about 30GB RAM. The mesh takes about 17GB of disk space. 
+cell interiors and interfaces) using about 30GB RAM. The mesh takes about 17GB of disk space.
+A piece\footnote{I cannot render data from all 32 CPUs at once} of this mesh is shown below 
+using some of the cell surfaces (coloring by CPU rank) 
+\begin{center}
+\includegraphics[width=\textwidth]{piece.png}
+\end{center}
 
 We remark that we observed factor 4 increase in the execution time/RAM/storage upon doubling 
 the $n$ and $m$ counts. 
