@@ -241,6 +241,7 @@ def load_data(mesh, h5_file, data_set, dim, data):
     tags = set(mf.array())
     # Don't evolve zero - we initialize to it
     if 0 in tags: tags.remove(0)
+    info('%s evolves tags %r' % (data_set, tags))
 
     for tag in tags:
         data[(dim, tag)] = np.array([e2v(e.index()) for e in SubsetIterator(mf, tag)],
