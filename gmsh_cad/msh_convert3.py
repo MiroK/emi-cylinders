@@ -18,8 +18,8 @@ def convert(msh_file, h5_file):
              out.write(mesh, 'mesh');''' % {'xml_file': xml_file,
                                              'h5_file': h5_file}
 
-    for region in ('facet_region.xml', 'physical_region.xml'):
-        name, _ = region.split('_')
+    names = ('surfaces', 'volumes')
+    for name, region in zip(names, ('facet_region.xml', 'physical_region.xml')):
         r_xml_file = '_'.join([root, region])
         if os.path.exists(r_xml_file):
             cmd_r = '''from dolfin import MeshFunction;\
@@ -82,10 +82,10 @@ if __name__ == '__main__':
     h5.read(mesh, 'mesh', False)
 
     surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-    h5.read(surfaces, 'facet')
+    h5.read(surfaces, 'surfaces')
 
     volumes = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
-    h5.read(volumes, 'physical')
+    h5.read(volumes, 'volumes')
 
     if args.save:
         File('results/%s_surf.pvd' % root) << surfaces
