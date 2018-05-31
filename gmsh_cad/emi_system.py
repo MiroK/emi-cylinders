@@ -8,7 +8,8 @@ parameters['ghost_mode'] = 'shared_facet'
 
 mesh_file = 'tile_1_narrow.h5'#'tile_2x2.h5'
 
-comm = MPI.comm_world
+#comm = MPI.comm_world
+comm = mpi_comm_world()
 h5 = HDF5File(comm, mesh_file, 'r')
 mesh = Mesh()
 h5.read(mesh, 'mesh', False)
@@ -16,7 +17,7 @@ h5.read(mesh, 'mesh', False)
 mesh.coordinates()[:] *= 1E-4
 
 # Facets in the mesh have tags 0, 1. One is for interfaces between
-# cells and cells and the exterior. The domain is split into 2 subdomains 
+# cells and cells and the exterior. The domain is split into 2 subdomains
 # marked as 1 and 0 (cell interior, cell exterior). These differ by conductivities
 
 ext_tag, int_tag = 0, 1
@@ -40,7 +41,7 @@ W = FunctionSpace(mesh, MixedElement([Sel, Vel, Qel]))
 sigma, u, p = TrialFunctions(W)
 tau, v, q = TestFunctions(W)
 
-# W.sub(0) bcs set strongly correspond to insulation. Skipping (tau.n)*u on 
+# W.sub(0) bcs set strongly correspond to insulation. Skipping (tau.n)*u on
 # bdry means potential there is weakly zero, grounding.
 
 #file = File("Volumes.pvd")
