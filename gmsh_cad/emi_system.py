@@ -99,8 +99,7 @@ L -= inner(Constant(0)('+'), q('+'))*dS(not_iface_tag) + inner(Constant(0), q)*d
 A, b = PETScMatrix(), PETScVector()
 assemble_system(a, L, A_tensor=A, b_tensor=b)
 
-dm = W.sub(2).dofmap().dofs()
-
+# dm = W.sub(2).dofmap().dofs()
 # import numpy as np
 # for i in range(A.size(0)):
 #     cols, vals = A.getrow(i)
