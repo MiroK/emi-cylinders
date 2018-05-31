@@ -13,7 +13,8 @@ parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=nati
 parameters['ghost_mode'] = 'shared_facet'
 opts = PETSc.Options()
 
-mesh_file = '2Dtest/cell_grid_2d.h5'
+mesh_file = 'tile_1_narrow_2_2.h5'
+#mesh_file = '2Dtest/cell_grid_2d.h5'
 #mesh_file = '500Kdofs/cell_grid.h5'
 #mesh_file = '8Mdofs/cell_grid.h5'
 #mesh_file = 'cell_grid_2d.h5'
@@ -117,11 +118,12 @@ A, b = PETScMatrix(), PETScVector()
 as_backend_type(A).mat().setOptionsPrefix("test_")
 as_backend_type(A).mat().setType("is")
 as_backend_type(A).mat().setFromOptions()
-assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
+#assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
+assemble_system(a, L, A_tensor=A, b_tensor=b)
 
 ## test unassembled format
 #Aij, bij = PETScMatrix(), PETScVector()
-#assemble_system(a, L, bcs, A_tensor=Aij, b_tensor=bij)
+#assemble_system(a, L, A_tensor=Aij, b_tensor=bij)
 #A1 = PETSc.Mat()
 #PETSc.Sys.Print("CONVERTING")
 #as_backend_type(A).mat().convert('aij',A1)
@@ -132,7 +134,7 @@ assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
 ## test reassembly
 #A1 = as_backend_type(A).mat().duplicate(copy=True)
 #as_backend_type(A).mat().zeroEntries()
-#assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
+#assemble_system(a, L, A_tensor=A, b_tensor=b)
 #
 #A1.axpy(-1,as_backend_type(A).mat())
 #PETSc.Sys.Print('Norm reassembly: %f' % A1.norm(PETSc.NormType.INFINITY))
@@ -249,12 +251,11 @@ ksp.solve(as_backend_type(b).vec(), as_backend_type(sol.vector()).vec())
 # prevent from deadlocks when garbage collecting
 del pc, ksp
 
-#as_backend_type(sol.vector()).update_ghost_values()
-
-#(sols, solv, solq) = sol.split()
-#file = File("electric.pvd")
-#file << sols
-#file = File("potential.pvd")
-#file << solv
+as_backend_type(sol.vector()).update_ghost_values()
+(sols, solv, solq) = sol.split()
+file = File("electric.pvd")
+file << sols
+file = File("potential.pvd")
+file << solv
 ##file = File("tpotential.pvd")
 ##file << solq
