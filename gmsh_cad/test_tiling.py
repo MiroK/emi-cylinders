@@ -1,5 +1,5 @@
 from dolfin import *
-from tiling import TileMesh, mf_from_data
+from tiling import TileMesh, mf_from_data, load_data
 from mpi4py import MPI
 import numpy as np
 
@@ -27,28 +27,26 @@ def test(path, type='mf'):
                 
             if type == 'mvc': collection = as_meshf(collection)
             
-            # Data to evolve
-            tile.init(dim, 0)
-            e2v = tile.topology()(dim, 0)
-            # Only want to evolve tag 1 (interfaces) for the facets. 
-            data[(dim, 1)] = np.array([e2v(e.index()) for e in SubsetIterator(collection, 1)],
-                                      dtype='uintp')
-            
+            load_data(tile, h5, name, dim, data)
+
             if dim == 2:
-                check = lambda m, f: assemble(FacetArea(m)*ds(domain=m, subdomain_data=f, subdomain_id=1)+
-                                              avg(FacetArea(m))*dS(domain=m, subdomain_data=f, subdomain_id=1))
+                # Interface area area
+                check = (lambda m, f: assemble(FacetArea(m)*ds(domain=m, subdomain_data=f, subdomain_id=1)+
+                                               avg(FacetArea(m))*dS(domain=m, subdomain_data=f, subdomain_id=1)), )
             else:
-                check = lambda m, f: assemble(CellVolume(m)*dx(domain=m, subdomain_data=f, subdomain_id=1))
+                check = (lambda m, f: assemble(CellVolume(m)*dx(domain=m, subdomain_data=f, subdomain_id=0)),
+                         lambda m, f: assemble(CellVolume(m)*dx(domain=m, subdomain_data=f, subdomain_id=1)))
 
-            checks[dim] = lambda m, f, t=tile, c=collection, n=n, check=check: abs(check(m, f)-n**2*check(t, c))/(n**2*check(t, c))
-
+            checks[dim] = [lambda m, f, t=tile, c=collection, n=n, check=c: (abs(check(m, f)-n**2*check(t, c))/(n**2*check(t, c)), check(t, c))
+                           for c in check]
+                
         t = Timer('x')
         mesh, mesh_data = TileMesh(tile, (n, n), mesh_data=data)
         info('\tTiling took %g s. Ncells %d, nvertices %d, \n' % (t.stop(), mesh.num_vertices(), mesh.num_cells()))
             
         foos = mf_from_data(mesh, mesh_data)
         # Mesh Functions
-        from_mf = np.array([checks[dim](mesh, foos[dim]) for dim in (2, 3)])
+        from_mf = np.array([check(mesh, foos[dim]) for dim in (2, 3) for check in checks[dim]])
         
         # Ignote this as mvc support dropped
         # mvcs = mvc_from_data(mesh, mesh_data)

@@ -18,7 +18,7 @@ mesh.coordinates()[:] *= 1E-4
 
 # Facets in the mesh have tags 0, 1. One is for interfaces between
 # cells and cells and the exterior. The domain is split into 2 subdomains
-# marked as 1 and 0 (cell interior, cell exterior). These differ by conductivities
+# marked as 1 and 2 (cell interior, cell exterior). These differ by conductivities
 
 ext_tag, int_tag = 0, 1
 not_iface_tag, iface_tag = 0, 1

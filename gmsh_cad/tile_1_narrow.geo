@@ -71,7 +71,7 @@ Periodic Surface surfSlave { boundSlave[] } = surfMaster { boundMaster[] };
 
 // // Physical volumes and surfaces
 Physical Volume(1) = {cylinder};
-//Physical Volume(2) = {box};
+Physical Volume(0) = {box};
 
 interfaces[] = Unique(Abs(Boundary{ Volume{cylinder}; }));  
 boundary[] = Unique(Abs(Boundary{ Volume{box}; }));

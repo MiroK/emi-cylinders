@@ -234,7 +234,7 @@ def load_data(mesh, h5_file, data_set, dim, data):
             
     # Data to evolve
     mesh.init(dim, 0)
-    e2v = tile.topology()(dim, 0)
+    e2v = mesh.topology()(dim, 0)
 
     tags = set(mf.array())
     # Don't evolve zero - we initialize to it
@@ -304,7 +304,10 @@ if __name__ == '__main__':
         
     out = HDF5File(mesh.mpi_comm(), h5_file, 'w')
     out.write(mesh, 'mesh')
-    
+
+    if args.save_pvd:
+        File('%s_%d_%d.pvd' % (root, shape[0], shape[1])) << mesh
+
     tt = Timer('data')
     # To mesh functions
     if mesh_data:
