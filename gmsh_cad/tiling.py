@@ -1,11 +1,9 @@
-from tiling_cpp import (fill_mesh, fill_mesh_function, fill_mesh_valuecollection,
-                        fill_mf_from_mvc)
+from tiling_cpp import fill_mesh, fill_mesh_function
 from test_periodic import compute_vertex_periodicity
 
 from dolfin import (CompiledSubDomain, Mesh, MeshEditor, MeshFunction, MeshValueCollection,
                     Timer, info, SubsetIterator)
 from collections import defaultdict
-from itertools import izip
 import numpy as np
 import operator
 
@@ -99,8 +97,8 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data={}):
     # NOTE: used only here and discarded
     vertex_mapping, shift_x = vertex_mappings.pop(), shifts_x.pop()
 
-    master_vertices = vertex_mapping.values()
-    slave_vertices = vertex_mapping.keys()
+    master_vertices = list(vertex_mapping.values())
+    slave_vertices = list(vertex_mapping.keys())
 
     refine = shape[axis]
     while refine > 1:    
@@ -128,7 +126,7 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data={}):
         slave_vertices = translate[slave_vertices]
         # For the directions that do not evolve we add the periodic pairs
         for vm in vertex_mappings:
-            vm.update(dict(izip(translate[vm.keys()], translate[vm.values()])))
+            vm.update(dict(zip(translate[list(vm.keys())], translate[list(vm.values())])))
         # Add the entities defined in terms of the vertices
         if mesh_data:
             evolve_data(mesh_data, translate)
@@ -158,7 +156,7 @@ def evolve_data(data, mapping):
 def make_mesh(coordinates, cells, tdim, gdim):
     '''Mesh by MeshEditor from vertices and cells'''
     mesh = Mesh()
-    assert mesh.mpi_comm().tompi4py().size == 1
+    assert mesh.mpi_comm().size == 1
 
     fill_mesh(coordinates.flatten(), cells.flatten(), tdim, gdim, mesh)
     
@@ -172,11 +170,11 @@ def mf_from_data(mesh, data):
                          init_container=lambda m, t: MeshFunction('size_t', m, t, 0))
 
 
-def mvc_from_data(mesh, data):
-    '''Build tdim -> mesh value collection from data of TileMesh'''
-    return _mx_from_data(mesh, data,
-                         fill=fill_mesh_valuecollection,
-                         init_container=lambda m, t: MeshValueCollection('size_t', m, t))
+# def mvc_from_data(mesh, data):
+#     '''Build tdim -> mesh value collection from data of TileMesh'''
+#     return _mx_from_data(mesh, data,
+#                          fill=fill_mesh_valuecollection,
+#                          init_container=lambda m, t: MeshValueCollection('size_t', m, t))
 
 
 def groupby(pairs, index):
@@ -184,13 +182,13 @@ def groupby(pairs, index):
     groups = defaultdict(list)
     for pair in pairs: groups[pair[index]].append(pair)
 
-    for item in groups.iteritems():
+    for item in groups.items():
         yield item
 
  
 def _mx_from_data(mesh, data, fill, init_container):
     '''Fill the contained over mesh by data'''
-    assert mesh.mpi_comm().tompi4py().size == 1
+    assert mesh.mpi_comm().size == 1
 
     containers = {}
     # We have define entities in terms of vertex numbering
@@ -210,19 +208,19 @@ def _mx_from_data(mesh, data, fill, init_container):
     return containers
 
 
-def as_meshf(mvc, init_value=0):
-    '''Make a mesh function out of mesh value collection'''
-    if isinstance(mvc, (tuple, list)):
-        return [as_meshf(x, init_value) for x in mvc]
+# def as_meshf(mvc, init_value=0):
+#     '''Make a mesh function out of mesh value collection'''
+#     if isinstance(mvc, (tuple, list)):
+#         return [as_meshf(x, init_value) for x in mvc]
 
-    if isinstance(mvc, dict):
-        return dict(zip(mvc.keys(), as_meshf(mvc.values())))
+#     if isinstance(mvc, dict):
+#         return dict(zip(mvc.keys(), as_meshf(mvc.values())))
 
-    # Base case
-    mesh_f = MeshFunction('size_t', mvc.mesh(), mvc.dim(), init_value)
-    fill_mf_from_mvc(mvc, mesh_f)
+#     # Base case
+#     mesh_f = MeshFunction('size_t', mvc.mesh(), mvc.dim(), init_value)
+#     fill_mf_from_mvc(mvc, mesh_f)
 
-    return mesh_f
+#     return mesh_f
 
 
 def load_data(mesh, h5_file, data_set, dim, data):
@@ -251,7 +249,8 @@ def load_data(mesh, h5_file, data_set, dim, data):
 # ------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    from dolfin import mpi_comm_world, HDF5File, Timer, File
+    from mpi4py import MPI
+    from dolfin import HDF5File, Timer, File
     import argparse, os
 
     parser = argparse.ArgumentParser(description='Put n tiles in x axis, m in y axis.')
@@ -278,7 +277,7 @@ if __name__ == '__main__':
     assert all((((v & (v - 1)) == 0) and v > 0) for v in shape)
     
     # Load the tile mesh
-    comm = mpi_comm_world()
+    comm = MPI.COMM_WORLD
     h5 = HDF5File(comm, args.tile, 'r')
     tile = Mesh()
     h5.read(tile, 'mesh', False)

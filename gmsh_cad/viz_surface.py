@@ -50,7 +50,6 @@ def vtk_surface(surfaces, tag, output, value):
         f.write("      </Cells>\n")
 
         value = '%d ' % value
-        print value
         f.write('      <CellData Scalars="tags">\n')
         f.write("        <DataArray type=\"Float32\" Name=\"tags\" format=\"ascii\">\n")
         f.write(value*ncells)
@@ -65,12 +64,13 @@ def vtk_surface(surfaces, tag, output, value):
 
 if __name__ == '__main__':
     from dolfin import *
+    from mpi4py import MPI
     import os
 
-    n = 128
+    n = 32
     mesh_file = 'tile_1_narrow_%d_%d.h5' % (n, n)
 
-    comm = mpi_comm_world()
+    comm = MPI.COMM_WORLD
     h5 = HDF5File(comm, mesh_file, 'r')
     mesh = Mesh()
     h5.read(mesh, 'mesh', False)
@@ -78,11 +78,11 @@ if __name__ == '__main__':
     surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
     h5.read(surfaces, 'surfaces')
 
-    rank = MPI.rank(comm)
+    rank = comm.rank
     dir = './results%d' % n
     if rank == 0 and not os.path.exists(dir):
         os.mkdir(dir)
-    MPI.barrier(comm)
+    comm.barrier()
 
     output = '%s/surf_%s_p%d.vtu' % (dir, mesh_file, rank)
     tag = 1

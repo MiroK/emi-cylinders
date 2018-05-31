@@ -1,12 +1,14 @@
 from dolfin import *
-from tiling import TileMesh, as_meshf, mvc_from_data, mf_from_data
+from tiling import TileMesh, mf_from_data
+from mpi4py import MPI
 import numpy as np
+
 
 
 def test(path, type='mf'):
     '''Evolve the tile in (n, n) pattern checking volume/surface properties'''
 
-    comm = mpi_comm_world()
+    comm = MPI.COMM_WORLD
     h5 = HDF5File(comm, path, 'r')
     tile = Mesh()
     h5.read(tile, 'mesh', False)
@@ -48,15 +50,16 @@ def test(path, type='mf'):
         # Mesh Functions
         from_mf = np.array([checks[dim](mesh, foos[dim]) for dim in (2, 3)])
         
-        mvcs = mvc_from_data(mesh, mesh_data)
-        foos = as_meshf(mvcs)
-        # Mesh ValueCollections
-        from_mvc = np.array([checks[dim](mesh, foos[dim]) for dim in (2, 3)])
+        # Ignote this as mvc support dropped
+        # mvcs = mvc_from_data(mesh, mesh_data)
+        # foos = as_meshf(mvcs)
+        # # Mesh ValueCollections
+        # from_mvc = np.array([checks[dim](mesh, foos[dim]) for dim in (2, 3)])
 
-        assert np.linalg.norm(from_mf - from_mvc) < 1E-13
+        # assert np.linalg.norm(from_mf - from_mvc) < 1E-13
         # I ignore shared facets so there is bound to be some error in facets
         # Volume should match well
-        print from_mf
+        print(from_mf)
     
 # -----------------------------------------------------------------------------
 

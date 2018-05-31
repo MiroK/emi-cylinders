@@ -1,15 +1,15 @@
 from dolfin import *
-from tiling import as_meshf
+from mpi4py import MPI
 
 parameters['form_compiler']['representation'] = 'uflacs'
 parameters['form_compiler']['cpp_optimize'] = True
 parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=native'
 parameters['ghost_mode'] = 'shared_facet'
 
-mesh_file = 'tile_1_narrow.h5'#'tile_2x2.h5'
+mesh_file = 'tile_1_narrow.h5'#_2x2.h5'
 
-#comm = MPI.comm_world
-comm = mpi_comm_world()
+comm = MPI.COMM_WORLD
+
 h5 = HDF5File(comm, mesh_file, 'r')
 mesh = Mesh()
 h5.read(mesh, 'mesh', False)
@@ -101,11 +101,11 @@ assemble_system(a, L, A_tensor=A, b_tensor=b)
 
 dm = W.sub(2).dofmap().dofs()
 
-import numpy as np
-for i in range(A.size(0)):
-    cols, vals = A.getrow(i)
-    if np.linalg.norm(vals, 1) == 0:
-        print (i, vals), i in dm
-print A.size(0), A.norm('linf')
+# import numpy as np
+# for i in range(A.size(0)):
+#     cols, vals = A.getrow(i)
+#     if np.linalg.norm(vals, 1) == 0:
+#         print((i, vals), i in dm)
+# print(A.size(0), A.norm('linf'))
 
-print np.sort(np.abs(np.linalg.eigvals(A.array())))[0:20]
+# print np.sort(np.abs(np.linalg.eigvals(A.array())))[0:20]

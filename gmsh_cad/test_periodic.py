@@ -77,17 +77,18 @@ def compute_vertex_periodicity(mesh, master, slave, to_master):
 
 if __name__ == '__main__':
     from dolfin import *
+    from mpi4py import MPI
 
     mesh_file = 'tile_1_narrow.h5'
     # mesh_file = 'tile_2x2.h5'
     # mesh_file = 'tile_1.h5'
 
-    comm = mpi_comm_world()
+    comm = MPI.COMM_WORLD
     h5 = HDF5File(comm, mesh_file, 'r')
     mesh = Mesh()
     h5.read(mesh, 'mesh', False)
 
-    assert comm.tompi4py().size == 1
+    assert comm.size == 1
 
     x = mesh.coordinates()
     min_ = np.min(x, axis=0)
