@@ -136,12 +136,12 @@ With the command below one gets a mesh with element size approximately 3$\mu m$.
 \end{center}
 To proceed the mesh is stored in HDF5 format as
 \[
-\texttt{python3 msh\textunderscore convert.py tile\textunderscore 1\textunderscore narrow.h5}
+\texttt{python3 msh\textunderscore convert.py tile\textunderscore 1\textunderscore narrow.msh}
 \]
 Next with glue together the \emph{tiles} together in the periodic directions to 
 get the full mesh:
 \[
-\texttt{python3 tiling.py tile\textunderscore 1\textunderscore narrow.msh -n 128 -m 128},
+\texttt{python3 tiling.py tile\textunderscore 1\textunderscore narrow.h5 -n 128 -m 128},
 \]
 where $n, m$ specify the number of tiles in $x$ and $y$ directions. This command 
 generated the mesh in approx 500 seconds (most of which was spent generating markers for the 
