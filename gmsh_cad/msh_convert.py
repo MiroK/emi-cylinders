@@ -1,4 +1,4 @@
-from dolfin import Mesh, MeshFunction, HDF5File, MeshValueCollection
+from dolfin import Mesh, MeshFunction, HDF5File, MeshValueCollection, info
 from msh_convert_cpp import fill_mvc_from_mf
 import subprocess, os
 
@@ -49,16 +49,15 @@ def cleanup(files=None, exts=()):
     if files is not None:
         return map(os.remove, files)
     else:
-        files = filter(lambda f: any(map(f.endswith, exts)), os.listdir('.'))
-        print('Removing', files)
+        files = list(filter(lambda f: any(map(f.endswith, exts)), os.listdir('.')))
+        info('Removing %r' % files) 
         return cleanup(files)
                     
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
-    from dolfin import File, mpi_comm_world
+    from mpi4py import MPI
     import argparse
-
 
     parser = argparse.ArgumentParser(description='Convert msh file to h5')
     parser.add_argument('io', type=str, nargs='+', help='input [output]')
@@ -91,9 +90,12 @@ if __name__ == '__main__':
         h5_file = '.'.join([root, 'h5'])
 
     assert convert(msh_file, h5_file, args.save_mvc)
-
+    
+    # VTK visualize tags
     if args.save_pvd:
-        h5 = HDF5File(mpi_comm_world(), h5_file, 'r')
+        from dolfin import File 
+
+        h5 = HDF5File(MPI.COMM_WORLD, h5_file, 'r')
         mesh = Mesh()
         h5.read(mesh, 'mesh', False)
 
@@ -103,17 +105,17 @@ if __name__ == '__main__':
         if not args.save_mvc:
             h5.read(surfaces, 'surfaces')
             h5.read(volumes, 'volumes')
-        # The data is mesh value collections
+        # The data is mesh value collections and convert to mesh foo is needed
         else:
-            from tiling_cpp import fill_mf_from_mvc
+            from msh_convert_cpp import fill_mvc_from_mf
 
             surfaces_mvc = MeshValueCollection('size_t', mesh, mesh.topology().dim()-1)
             h5.read(surfaces_mvc, 'surfaces')
-            fill_mf_from_mvc(surfaces_mvc, surfaces)
+            fill_mvc_from_mf(surfaces, surfaces_mvc)
 
             volumes_mvc = MeshValueCollection('size_t', mesh, mesh.topology().dim())
             h5.read(volumes_mvc, 'volumes')
-            fill_mf_from_mvc(volumes_mvc, volumes)
+            fill_mvc_from_mf(volumes, volumes_mvc)
 
         File('results/%s_surf.pvd' % root) << surfaces
         File('results/%s_vols.pvd' % root) << volumes    
