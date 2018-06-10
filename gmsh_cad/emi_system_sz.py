@@ -201,7 +201,7 @@ opts.setValue("-test_pc_bddc_neumann_pc_factor_mat_solver_type","mumps")
 #opts.setValue("-test_pc_bddc_coarse_redundant_pc_factor_mat_solver_type","umfpack")
 
 # Number of additional levels : 0 means standard 2-level BDDC
-nlevels = 1
+nlevels = 0
 
 # Coarse solver (MUMPS or BDDC)
 opts.setValue("-test_pc_bddc_coarse_pc_factor_mat_solver_type","mumps")
