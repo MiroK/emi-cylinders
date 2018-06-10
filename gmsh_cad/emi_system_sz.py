@@ -7,11 +7,12 @@ from dolfin import *
 from petsc4py import PETSc
 from mpi4py import MPI
 
+opts = PETSc.Options()
+parameters['mesh_partitioner'] = opts.getString('meshpartitioner','ParMETIS')
 parameters['form_compiler']['representation'] = 'uflacs'
 parameters['form_compiler']['cpp_optimize'] = True
 parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=native'
 parameters['ghost_mode'] = 'shared_facet'
-opts = PETSc.Options()
 
 mesh_file = opts.getString('meshfile','Tiles/tile_1_narrow_2_2.h5')
 #mesh_file = '2Dtest/cell_grid_2d.h5'
