@@ -13,7 +13,7 @@ parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=nati
 parameters['ghost_mode'] = 'shared_facet'
 opts = PETSc.Options()
 
-mesh_file = 'tile_1_narrow_2_2.h5'
+mesh_file = opts.getString('meshfile','Tiles/tile_1_narrow_2_2.h5')
 #mesh_file = '2Dtest/cell_grid_2d.h5'
 #mesh_file = '500Kdofs/cell_grid.h5'
 #mesh_file = '8Mdofs/cell_grid.h5'
