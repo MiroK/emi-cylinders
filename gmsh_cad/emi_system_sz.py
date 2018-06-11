@@ -7,6 +7,15 @@ from dolfin import *
 from petsc4py import PETSc
 from mpi4py import MPI
 
+comm = MPI.COMM_WORLD
+
+# Create stages for logging
+st_mesh = PETSc.Log.Stage("Mesh SetUp")
+st_ass  = PETSc.Log.Stage("Assembly")
+st_pc   = PETSc.Log.Stage("BDDC SetUp")
+st_ksp  = PETSc.Log.Stage("KSP Solve")
+
+# Dolfin global parameters
 opts = PETSc.Options()
 parameters['mesh_partitioner'] = opts.getString('meshpartitioner','ParMETIS')
 parameters['form_compiler']['representation'] = 'uflacs'
@@ -20,26 +29,25 @@ mesh_file = opts.getString('meshfile','Tiles/tile_1_narrow_2_2.h5')
 #mesh_file = '8Mdofs/cell_grid.h5'
 #mesh_file = 'cell_grid_2d.h5'
 
-comm = MPI.COMM_WORLD
+with st_mesh :
+  h5 = HDF5File(comm, mesh_file, 'r')
+  mesh = Mesh()
+  h5.read(mesh, 'mesh', False)
+  # The mesh comes in micro meters. Below it is more convenient to work in cm
+  mesh.coordinates()[:] *= 1E-4
 
-h5 = HDF5File(comm, mesh_file, 'r')
-mesh = Mesh()
-h5.read(mesh, 'mesh', False)
-# The mesh comes in micro meters. Below it is more convenient to work in cm
-mesh.coordinates()[:] *= 1E-4
+  # Facets in the mesh have tags 0, 1. One is for interfaces between
+  # cells and cells and the exterior. The domain is split into 2 subdomains
+  # marked as 1 and 0 (cell interior, cell exterior). These differ by conductivities
 
-# Facets in the mesh have tags 0, 1. One is for interfaces between
-# cells and cells and the exterior. The domain is split into 2 subdomains
-# marked as 1 and 0 (cell interior, cell exterior). These differ by conductivities
+  ext_tag, int_tag = 0, 1
+  not_iface_tag, iface_tag = 0, 1
 
-ext_tag, int_tag = 0, 1
-not_iface_tag, iface_tag = 0, 1
+  surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+  h5.read(surfaces, 'surfaces')
 
-surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
-h5.read(surfaces, 'surfaces')
-
-volumes = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
-h5.read(volumes, 'volumes')
+  volumes = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
+  h5.read(volumes, 'volumes')
 
 cell = mesh.ufl_cell()
 # We have 3 spaces S for sigma = -kappa*grad(u)   [~electric field]
@@ -124,7 +132,7 @@ as_backend_type(A).mat().setOptionsPrefix("test_")
 as_backend_type(A).mat().setType("is")
 as_backend_type(A).mat().setFromOptions()
 #assemble_system(a, L, bcs, A_tensor=A, b_tensor=b)
-assemble_system(a, L, A_tensor=A, b_tensor=b)
+with st_ass : assemble_system(a, L, A_tensor=A, b_tensor=b)
 
 ## test unassembled format
 #Aij, bij = PETScMatrix(), PETScVector()
@@ -238,12 +246,13 @@ opts.setValue("-test_pc_bddc_coarse_check_ksp_monitor",None)
 opts.setValue("-test_pc_bddc_coarse_check_ksp_converged_reason",None)
 opts.setValue("-test_pc_bddc_coarse_check_ksp_type","cg")
 opts.setValue("-test_pc_bddc_coarse_check_ksp_norm_type","natural")
-#opts.setValue("test_pc_bddc_coarse_ksp_type","chebyshev")
-#opts.setValue("test_pc_bddc_use_coarse_estimates",None)
-#opts.setValue("test_pc_bddc_coarse_pc_bddc_use_coarse_estimates",None)
+if opts.getBool('cheby',False) :
+  opts.setValue("-test_pc_bddc_coarse_ksp_type","chebyshev")
+  opts.setValue("-test_pc_bddc_use_coarse_estimates",None)
+  opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_coarse_estimates",None)
 
 for j in range(1, nlevels):
-  if lcheck <= j+2 :
+  if lcheck < j+2 :
     opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_check_level", dcheck)
 
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_sub_schurs_mat_mumps_icntl_14",500)
@@ -257,8 +266,9 @@ for j in range(1, nlevels):
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_monitor",None)
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_converged_reason",None)
-  #opts.setValue("test_pc_bddc_coarse_l" + str(j) + "_ksp_type","chebyshev")
-  #opts.setValue("test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_coarse_estimates",None);
+  if opts.getBool('cheby',False) :
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_ksp_type","chebyshev")
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_coarse_estimates",None);
 
 # prevent from having a bad coarse solver
 opts.setValue("-test_pc_bddc_coarse_l3_redundant_pc_factor_mat_solver_type","mumps");
@@ -272,8 +282,11 @@ opts.setValue("-test_pc_bddc_coarse_redundant_pc_type","cholesky")
 
 #Solve
 ksp.setFromOptions()
+with st_pc : pc.setUp()
+
 sol = Function(W)
-ksp.solve(as_backend_type(b).vec(), as_backend_type(sol.vector()).vec())
+
+with st_ksp : ksp.solve(as_backend_type(b).vec(), as_backend_type(sol.vector()).vec())
 
 # prevent from deadlocks when garbage collecting
 del pc, ksp
