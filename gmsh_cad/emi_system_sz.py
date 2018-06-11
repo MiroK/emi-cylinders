@@ -5,6 +5,11 @@ petsc4py.init(sys.argv)
 
 from dolfin import *
 from petsc4py import PETSc
+
+# Remove the dolfin error handler
+XXX = PETScMatrix()
+PETSc.Sys.pushErrorHandler('python')
+
 from mpi4py import MPI
 
 comm = MPI.COMM_WORLD
@@ -22,6 +27,7 @@ parameters['form_compiler']['representation'] = 'uflacs'
 parameters['form_compiler']['cpp_optimize'] = True
 parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=native'
 parameters['ghost_mode'] = 'shared_facet'
+parameters["use_petsc_signal_handler"] = True
 
 mesh_file = opts.getString('meshfile','Tiles/tile_1_narrow_2_2.h5')
 #mesh_file = '2Dtest/cell_grid_2d.h5'
@@ -65,11 +71,11 @@ tau, v, q = TestFunctions(W)
 # bdry means potential there is weakly zero, grounding.
 
 if opts.getBool('view_volumes',False) :
-  file = File("Volumes.pvd")
+  file = File("outdata/Volumes.pvd")
   file << volumes
 
 if opts.getBool('view_surfaces',False) :
-  file = File("Surfaces.pvd")
+  file = File("outdata/Surfaces.pvd")
   file << surfaces
 
 # Make measures aware of subdomains
@@ -191,12 +197,18 @@ opts.setValue("-test_pc_bddc_use_deluxe_scaling", None)
 opts.setValue("-test_pc_bddc_deluxe_zerorows", None)
 opts.setValue("-test_pc_bddc_use_local_mat_graph", "0")
 opts.setValue("-test_pc_bddc_adaptive_userdefined", None)
+opts.setValue("-test_pc_bddc_coarse_eqs_per_proc",100)
 
 # Better off you have MUMPS or SUITESPARSE for the factorizations
 
 # Sometimes MUMPS fails with error -9 (increase Schur workspace....this is annoying)
-opts.setValue("-test_sub_schurs_mat_mumps_icntl_14",500)
-opts.setValue("-mat_mumps_icntl_14",500)
+opts.setValue("-test_sub_schurs_mat_mumps_icntl_14",1000)
+opts.setValue("-mat_mumps_icntl_14",1000)
+
+# turn on singular factorization (just be on the safe side)
+opts.setValue("-mat_mumps_icntl_24",1)
+opts.setValue("-mat_mumps_cntl_3",1.0e-8)
+opts.setValue("-mat_mumps_cntl_5",1.e25)
 
 # Local solvers (MUMPS)
 opts.setValue("-test_pc_bddc_dirichlet_pc_type","cholesky") # This is actually LDL^T
@@ -295,9 +307,9 @@ del pc, ksp
 if opts.getBool('view_solution',False) :
   as_backend_type(sol.vector()).update_ghost_values()
   (sols, solv, solq) = sol.split()
-  file = File("electric.pvd")
+  file = File("outdata/electric.pvd")
   file << sols
-  file = File("potential.pvd")
+  file = File("outdata/potential.pvd")
   file << solv
-  #file = File("tpotential.pvd")
+  #file = File("outdata/tpotential.pvd")
   #file << solq
