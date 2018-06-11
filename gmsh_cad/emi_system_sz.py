@@ -56,10 +56,14 @@ tau, v, q = TestFunctions(W)
 # W.sub(0) bcs set strongly correspond to insulation. Skipping (tau.n)*u on
 # bdry means potential there is weakly zero, grounding.
 
-#file = File("Volumes.pvd")
-#file << volumes
-#file = File("Surfaces.pvd")
-#file << surfaces
+if opts.getBool('view_volumes',False) :
+  file = File("Volumes.pvd")
+  file << volumes
+
+if opts.getBool('view_surfaces',False) :
+  file = File("Surfaces.pvd")
+  file << surfaces
+
 # Make measures aware of subdomains
 dx = Measure('dx', domain=mesh, subdomain_data=volumes)
 dS = Measure('dS', domain=mesh, subdomain_data=surfaces)
@@ -170,6 +174,7 @@ opts.setValue("-test_ksp_norm_type", "natural")
 
 # Don't turn these off
 opts.setValue("-test_pc_bddc_detect_disconnected", None)
+opts.setValue("-test_pc_bddc_detect_disconnected_filter", None)
 opts.setValue("-test_pc_bddc_use_faces", None)
 opts.setValue("-test_pc_bddc_benign_trick", None)
 opts.setValue("-test_pc_bddc_nonetflux", None)
@@ -202,15 +207,29 @@ opts.setValue("-test_pc_bddc_neumann_pc_factor_mat_solver_type","mumps")
 #opts.setValue("-test_pc_bddc_coarse_redundant_pc_factor_mat_solver_type","umfpack")
 
 # Number of additional levels : 0 means standard 2-level BDDC
-nlevels = 0
+nlevels = opts.getInt('nlevels',0)
+coarsening = opts.getInt('coarsening',2)
+
+# debugs check from level
+lcheck = opts.getInt('check_from_level',nlevels+1)
+dcheck = opts.getInt('check_from_level_dbg',1)
 
 # Coarse solver (MUMPS or BDDC)
 opts.setValue("-test_pc_bddc_coarse_pc_factor_mat_solver_type","mumps")
 if nlevels < 1:
   opts.setValue("-test_pc_bddc_coarse_pc_type","cholesky") # This is actually LDL^T
 
+if lcheck <= 0 :
+  opts.setValue("-test_pc_bddc_check_level", dcheck)
+
+if lcheck <= 1 :
+  opts.setValue("-test_pc_bddc_coarse_pc_bddc_check_level", dcheck)
+
 opts.setValue("-test_pc_bddc_levels",nlevels)
+opts.setValue("-test_pc_bddc_coarsening_ratio",coarsening)
 opts.setValue("-test_pc_bddc_coarse_sub_schurs_mat_mumps_icntl_14",500)
+opts.setValue("-test_pc_bddc_coarse_pc_bddc_detect_disconnected", None)
+opts.setValue("-test_pc_bddc_coarse_pc_bddc_detect_disconnected_filter", None)
 opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_deluxe_scaling",None)
 opts.setValue("-test_pc_bddc_coarse_pc_bddc_deluxe_zerorows",None)
 opts.setValue("-test_pc_bddc_coarse_pc_bddc_schur_exact",None)
@@ -222,27 +241,34 @@ opts.setValue("-test_pc_bddc_coarse_check_ksp_norm_type","natural")
 #opts.setValue("test_pc_bddc_coarse_ksp_type","chebyshev")
 #opts.setValue("test_pc_bddc_use_coarse_estimates",None)
 #opts.setValue("test_pc_bddc_coarse_pc_bddc_use_coarse_estimates",None)
-for j in range(0, nlevels):
+
+for j in range(1, nlevels):
+  if lcheck <= j+2 :
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_check_level", dcheck)
+
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_sub_schurs_mat_mumps_icntl_14",500)
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_detect_disconnected",None)
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_detect_disconnected_filter",None)
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_deluxe_scaling",None)
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_deluxe_zerorows",None)
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_schur_exact",None)
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_local_mat_graph",None)
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
-  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_ksp_type","chebyshev")
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_monitor",None)
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_converged_reason",None)
-  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
-  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
   #opts.setValue("test_pc_bddc_coarse_l" + str(j) + "_ksp_type","chebyshev")
   #opts.setValue("test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_coarse_estimates",None);
 
-# prevent to have a bad coarse solver
-opts.setValue("-test_pc_bddc_coarse_l3_redundant_pc_factor_mat_solver_package","mumps");
-opts.setValue("-test_pc_bddc_coarse_l2_redundant_pc_factor_mat_solver_package","mumps");
-opts.setValue("-test_pc_bddc_coarse_l1_redundant_pc_factor_mat_solver_package","mumps");
-opts.setValue("-test_pc_bddc_coarse_redundant_pc_factor_mat_solver_package","mumps")
+# prevent from having a bad coarse solver
+opts.setValue("-test_pc_bddc_coarse_l3_redundant_pc_factor_mat_solver_type","mumps");
+opts.setValue("-test_pc_bddc_coarse_l3_redundant_pc_type","cholesky")
+opts.setValue("-test_pc_bddc_coarse_l2_redundant_pc_factor_mat_solver_type","mumps");
+opts.setValue("-test_pc_bddc_coarse_l2_redundant_pc_type","cholesky")
+opts.setValue("-test_pc_bddc_coarse_l1_redundant_pc_factor_mat_solver_type","mumps");
+opts.setValue("-test_pc_bddc_coarse_l1_redundant_pc_type","cholesky")
+opts.setValue("-test_pc_bddc_coarse_redundant_pc_factor_mat_solver_type","mumps")
+opts.setValue("-test_pc_bddc_coarse_redundant_pc_type","cholesky")
 
 #Solve
 ksp.setFromOptions()
@@ -252,11 +278,13 @@ ksp.solve(as_backend_type(b).vec(), as_backend_type(sol.vector()).vec())
 # prevent from deadlocks when garbage collecting
 del pc, ksp
 
-as_backend_type(sol.vector()).update_ghost_values()
-(sols, solv, solq) = sol.split()
-file = File("electric.pvd")
-file << sols
-file = File("potential.pvd")
-file << solv
-##file = File("tpotential.pvd")
-##file << solq
+# Visualize computed solution
+if opts.getBool('view_solution',False) :
+  as_backend_type(sol.vector()).update_ghost_values()
+  (sols, solv, solq) = sol.split()
+  file = File("electric.pvd")
+  file << sols
+  file = File("potential.pvd")
+  file << solv
+  #file = File("tpotential.pvd")
+  #file << solq
