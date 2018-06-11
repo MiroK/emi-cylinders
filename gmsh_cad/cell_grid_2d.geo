@@ -271,10 +271,8 @@ Plane Surface(s) = {inner_ll, frame_ll};
 // Mark volumes
 //
 Physical Surface(1) = {cells[]};  // cell are 1
-Physical Surface(2) = {exteriors[]};  // rim and exterior are 2
-Physical Surface(2) += {s};
+Physical Surface(0) = {exteriors[]};  // rim and exterior are 2
+Physical Surface(0) += {s};
 
 cell_interfaces[] = Unique(Abs(Boundary{ Surface{cells[]}; }));
-Physical Line(1) = {cell_interfaces[]};
-
-Physical Line(2) = {frame[]};
+Physical Line(1) = {frame[], cell_interfaces[]};
