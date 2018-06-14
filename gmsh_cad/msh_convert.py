@@ -1,4 +1,4 @@
-from dolfin import Mesh, MeshFunction, HDF5File, MeshValueCollection
+from dolfin import Mesh, MeshFunction, HDF5File, MeshValueCollection, SubsetIterator
 from msh_convert_cpp import fill_mvc_from_mf
 import subprocess, os
 
@@ -19,6 +19,8 @@ def convert(msh_file, h5_file, save_mvc=False):
     out = HDF5File(mesh.mpi_comm(), h5_file, 'w')
     out.write(mesh, 'mesh')
 
+    print('Mesh has %d' % mesh.num_cells())
+    
     # Save ALL data as facet_functions
     names = ('surfaces', 'volumes')
     if not save_mvc:
@@ -26,6 +28,7 @@ def convert(msh_file, h5_file, save_mvc=False):
             r_xml_file = '_'.join([root, region])
 
             f = MeshFunction('size_t', mesh, r_xml_file)
+            print('%d %s with 1' % (sum(1 for _ in SubsetIterator(f, 1)), name))
             out.write(f, name)
 
         return True

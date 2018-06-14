@@ -8,7 +8,7 @@ radius_y = {6, Name "radius of connection in y direction"}
 length = {100, Name "length of cell (body)"}
 length_x = {4, Name "length of connection in x direction"}
 length_y = {10, Name "length of connection in y direction"}
-padz = {20, Name "bounding box padding in z direction"}
+padz = {8, Name "bounding box padding in z direction"}
 ];
 
 // The length units here micro meters
@@ -71,7 +71,7 @@ Periodic Surface surfSlave { boundSlave[] } = surfMaster { boundMaster[] };
 
 // // Physical volumes and surfaces
 Physical Volume(1) = {cylinder};
-//Physical Volume(2) = {box};
+Physical Volume(0) = {box};
 
 interfaces[] = Unique(Abs(Boundary{ Volume{cylinder}; }));  
 boundary[] = Unique(Abs(Boundary{ Volume{box}; }));
@@ -79,3 +79,6 @@ boundary[] -= {interfaces[]};
 
 //Physical Surface(2) = {boundary[]};
 Physical Surface(1) = {interfaces[]};
+
+//Characteristic Length{interfaces[]} = 4;
+//Characteristic Length{boundary[]} = 8;
