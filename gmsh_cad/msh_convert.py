@@ -19,7 +19,8 @@ def convert(msh_file, h5_file, save_mvc=False):
     out = HDF5File(mesh.mpi_comm(), h5_file, 'w')
     out.write(mesh, 'mesh')
 
-    print('Mesh has %d' % mesh.num_cells())
+    print('Mesh has %d cells' % mesh.num_cells())
+    print('Mesh size %g %g' % (mesh.hmin(), mesh.hmax()))
     
     # Save ALL data as facet_functions
     names = ('surfaces', 'volumes')
