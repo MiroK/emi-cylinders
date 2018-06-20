@@ -7,8 +7,8 @@ radius_x = {8, Name "radius of connection in x direction"}
 radius_y = {6, Name "radius of connection in y direction"}
 length = {100, Name "length of cell (body)"}
 length_x = {4, Name "length of connection in x direction"}
-length_y = {10, Name "length of connection in y direction"}
-padz = {20, Name "bounding box padding in z direction"}
+length_y = {4, Name "length of connection in y direction"}
+padz = {4, Name "bounding box padding in z direction"}
 ];
 
 // The length units here micro meters
