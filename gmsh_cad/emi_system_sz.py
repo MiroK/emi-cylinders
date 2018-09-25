@@ -1,22 +1,41 @@
+import time
+
+start = time.time()
+tic = start
+
 import petsc4py, sys
 
 # I like to be in control of the command line
 petsc4py.init(sys.argv)
 
-from dolfin import *
 from petsc4py import PETSc
 
+PETSc.COMM_WORLD.barrier()
+PETSc.Sys.Print('PETSC4PY startup : %g'%(time.time()-tic),flush=True)
+
+tic = time.time()
+from dolfin import *
+PETSc.COMM_WORLD.barrier()
+PETSc.Sys.Print('DOLFIN   startup : %g'%(time.time()-tic),flush=True)
+
 # Remove the dolfin error handler
+tic = time.time()
 XXX = PETScMatrix()
 PETSc.Sys.pushErrorHandler('python')
+PETSc.COMM_WORLD.barrier()
+PETSc.Sys.Print('DOLFIN   xxx     : %g'%(time.time()-tic),flush=True)
 
+tic = time.time()
 from mpi4py import MPI
+PETSc.COMM_WORLD.barrier()
+PETSc.Sys.Print('MPI      xxx     : %g'%(time.time()-tic),flush=True)
 
 comm = MPI.COMM_WORLD
 
 # Create stages for logging
 st_mesh = PETSc.Log.Stage("Mesh SetUp")
 st_ass  = PETSc.Log.Stage("Assembly")
+st_dol  = PETSc.Log.Stage("Dolfin Stuff")
 st_pc   = PETSc.Log.Stage("BDDC SetUp")
 st_ksp  = PETSc.Log.Stage("KSP Solve")
 
@@ -55,21 +74,6 @@ with st_mesh :
   volumes = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
   h5.read(volumes, 'volumes')
 
-cell = mesh.ufl_cell()
-# We have 3 spaces S for sigma = -kappa*grad(u)   [~electric field]
-#                  U for potential u
-#                  Q for transmebrane potential p
-Sel = FiniteElement('RT', cell, 1)
-Vel = FiniteElement('DG', cell, 0)
-Qel = FiniteElement('Discontinuous Lagrange Trace', cell, 0)
-
-W = FunctionSpace(mesh, MixedElement([Sel, Vel, Qel]))
-sigma, u, p = TrialFunctions(W)
-tau, v, q = TestFunctions(W)
-
-# W.sub(0) bcs set strongly correspond to insulation. Skipping (tau.n)*u on
-# bdry means potential there is weakly zero, grounding.
-
 if opts.getBool('view_volumes',False) :
   file = File("outdata/Volumes.pvd")
   file << volumes
@@ -78,53 +82,69 @@ if opts.getBool('view_surfaces',False) :
   file = File("outdata/Surfaces.pvd")
   file << surfaces
 
-# Make measures aware of subdomains
-dx = Measure('dx', domain=mesh, subdomain_data=volumes)
-dS = Measure('dS', domain=mesh, subdomain_data=surfaces)
-ds = Measure('ds', domain=mesh, subdomain_data=surfaces)
+with st_dol :
+  cell = mesh.ufl_cell()
+  # We have 3 spaces S for sigma = -kappa*grad(u)   [~electric field]
+  #                  U for potential u
+  #                  Q for transmebrane potential p
+  Sel = FiniteElement('RT', cell, 1)
+  Vel = FiniteElement('DG', cell, 0)
+  Qel = FiniteElement('Discontinuous Lagrange Trace', cell, 0)
 
-# Normal fo the INTERIOR surface. Note that 1, 2 marking of volume makes
-# 2 cells the '+' cells w.r.t to surface and n('+') would therefore be their
-# outer normal (that is an outer normal of the outside). ('-') makes the orientation
-# right (set later)
-n = FacetNormal(mesh)
+  W = FunctionSpace(mesh, MixedElement([Sel, Vel, Qel]))
+  sigma, u, p = TrialFunctions(W)
+  tau, v, q = TestFunctions(W)
 
-# Now onto the weak form
-# Electric properties of membrane and interior/exterior
-C_m = Constant(1)         # 1 mu F / cm^2
-cond_int = Constant(5)    # 5 mS / cm
-cond_ext = Constant(20)   # 20 mS / cm
-# Time step
-dt_fem = Constant(1E-3)   # ms
+  # W.sub(0) bcs set strongly correspond to insulation. Skipping (tau.n)*u on
+  # bdry means potential there is weakly zero, grounding.
 
-# The source term as a function Q is coming from ODE solver. Here it is
-# just some random function
-Q = FunctionSpace(mesh, Qel)
-p0 = interpolate(Constant(1), Q)
-# And additional source on the boundary is the ionic current. For simplicity
-I_ion = p0
+  # Make measures aware of subdomains
+  dx = Measure('dx', domain=mesh, subdomain_data=volumes)
+  dS = Measure('dS', domain=mesh, subdomain_data=surfaces)
+  ds = Measure('ds', domain=mesh, subdomain_data=surfaces)
 
-# The system
-a = ((1/cond_int)*inner(sigma, tau)*dx(int_tag)+(1/cond_ext)*inner(sigma, tau)*dx(ext_tag)
-     - inner(div(tau), u)*dx(int_tag) - inner(div(tau), u)*dx(ext_tag)
-     + inner(p('+'), dot(tau('+'), n('-')))*dS(iface_tag)
-     - inner(div(sigma), v)*dx(int_tag) - inner(div(sigma), v)*dx(ext_tag)
-     + inner(q('+'), dot(sigma('+'), n('-')))*dS(iface_tag)
-     - (C_m/dt_fem)*inner(q('+'), p('+'))*dS(iface_tag))
+  # Normal fo the INTERIOR surface. Note that 1, 2 marking of volume makes
+  # 2 cells the '+' cells w.r.t to surface and n('+') would therefore be their
+  # outer normal (that is an outer normal of the outside). ('-') makes the orientation
+  # right (set later)
+  n = FacetNormal(mesh)
 
-L = inner(q('+'), I_ion('+')-(C_m/dt_fem)*p0('+'))*dS(iface_tag)
+  # Now onto the weak form
+  # Electric properties of membrane and interior/exterior
+  C_m = Constant(1)         # 1 mu F / cm^2
+  cond_int = Constant(5)    # 5 mS / cm
+  cond_ext = Constant(20)   # 20 mS / cm
+  # Time step
+  dt_fem = Constant(1E-3)   # ms
 
-# NOTE: in general the cell interfaces might end up on the surface boundary
-a += (inner(p, dot(tau, n))*ds(iface_tag)
-      + inner(q, dot(sigma, n))*ds(iface_tag)
-      - (C_m/dt_fem)*inner(q, p)*ds(iface_tag))
+  # The source term as a function Q is coming from ODE solver. Here it is
+  # just some random function
+  Q = FunctionSpace(mesh, Qel)
+  p0 = interpolate(Constant(1), Q)
+  # And additional source on the boundary is the ionic current. For simplicity
+  I_ion = p0
 
-L += inner(q, I_ion-(C_m/dt_fem)*p0)*ds(iface_tag)
+  # The system
+  a = ((1/cond_int)*inner(sigma, tau)*dx(int_tag)+(1/cond_ext)*inner(sigma, tau)*dx(ext_tag)
+       - inner(div(tau), u)*dx(int_tag) - inner(div(tau), u)*dx(ext_tag)
+       + inner(p('+'), dot(tau('+'), n('-')))*dS(iface_tag)
+       - inner(div(sigma), v)*dx(int_tag) - inner(div(sigma), v)*dx(ext_tag)
+       + inner(q('+'), dot(sigma('+'), n('-')))*dS(iface_tag)
+       - (C_m/dt_fem)*inner(q('+'), p('+'))*dS(iface_tag))
 
-# Additional terms to set to zero the dofs of W.sub(2) which are not on
-# the interfaces
-a -= inner(p('+'), q('+'))*dS(not_iface_tag) + inner(p, q)*ds(not_iface_tag)
-L -= inner(Constant(0)('+'), q('+'))*dS(not_iface_tag) + inner(Constant(0), q)*ds(not_iface_tag)
+  L = inner(q('+'), I_ion('+')-(C_m/dt_fem)*p0('+'))*dS(iface_tag)
+
+  # NOTE: in general the cell interfaces might end up on the surface boundary
+  a += (inner(p, dot(tau, n))*ds(iface_tag)
+        + inner(q, dot(sigma, n))*ds(iface_tag)
+        - (C_m/dt_fem)*inner(q, p)*ds(iface_tag))
+
+  L += inner(q, I_ion-(C_m/dt_fem)*p0)*ds(iface_tag)
+
+  # Additional terms to set to zero the dofs of W.sub(2) which are not on
+  # the interfaces
+  a -= inner(p('+'), q('+'))*dS(not_iface_tag) + inner(p, q)*ds(not_iface_tag)
+  L -= inner(Constant(0)('+'), q('+'))*dS(not_iface_tag) + inner(Constant(0), q)*ds(not_iface_tag)
 
 # In the presence of internal facet terms, the local to global maps have ghost cells (through shared facets)
 # However, only one process insert values there -> we need to prune empty local rows/columns
@@ -197,7 +217,7 @@ opts.setValue("-test_pc_bddc_use_deluxe_scaling", None)
 opts.setValue("-test_pc_bddc_deluxe_zerorows", None)
 opts.setValue("-test_pc_bddc_use_local_mat_graph", "0")
 opts.setValue("-test_pc_bddc_adaptive_userdefined", None)
-opts.setValue("-test_pc_bddc_coarse_eqs_per_proc",100)
+opts.setValue("-test_pc_bddc_coarse_eqs_per_proc",1000)
 
 # Better off you have MUMPS or SUITESPARSE for the factorizations
 
@@ -234,10 +254,13 @@ coarsening = opts.getInt('coarsening',2)
 lcheck = opts.getInt('check_from_level',nlevels+1)
 dcheck = opts.getInt('check_from_level_dbg',1)
 
-# Coarse solver (MUMPS or BDDC)
-opts.setValue("-test_pc_bddc_coarse_pc_factor_mat_solver_type","mumps")
+# Coarsest solver (MUMPS)
 if nlevels < 1:
   opts.setValue("-test_pc_bddc_coarse_pc_type","cholesky") # This is actually LDL^T
+  opts.setValue("-test_pc_bddc_coarse_pc_factor_mat_solver_type","mumps")
+else:
+  opts.setValue("-test_pc_bddc_coarse_l" + str(nlevels) + "_pc_type","cholesky") # This is actually LDL^T
+  opts.setValue("-test_pc_bddc_coarse_l" + str(nlevels) + "_pc_factor_mat_solver_type","mumps")
 
 if lcheck <= 0 :
   opts.setValue("-test_pc_bddc_check_level", dcheck)
@@ -245,8 +268,11 @@ if lcheck <= 0 :
 if lcheck <= 1 :
   opts.setValue("-test_pc_bddc_coarse_pc_bddc_check_level", dcheck)
 
+# multilevel BDDC options (number of additional levels and coarsening ratio)
 opts.setValue("-test_pc_bddc_levels",nlevels)
 opts.setValue("-test_pc_bddc_coarsening_ratio",coarsening)
+
+# options for the optional (nlevels > 0) first additional level
 opts.setValue("-test_pc_bddc_coarse_sub_schurs_mat_mumps_icntl_14",500)
 opts.setValue("-test_pc_bddc_coarse_pc_bddc_detect_disconnected", None)
 opts.setValue("-test_pc_bddc_coarse_pc_bddc_detect_disconnected_filter", None)
@@ -254,15 +280,18 @@ opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_deluxe_scaling",None)
 opts.setValue("-test_pc_bddc_coarse_pc_bddc_deluxe_zerorows",None)
 opts.setValue("-test_pc_bddc_coarse_pc_bddc_schur_exact",None)
 opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_local_mat_graph",None)
-opts.setValue("-test_pc_bddc_coarse_check_ksp_monitor",None)
+opts.setValue("-test_pc_bddc_coarse_check_ksp_monitor_singular_value",None)
 opts.setValue("-test_pc_bddc_coarse_check_ksp_converged_reason",None)
 opts.setValue("-test_pc_bddc_coarse_check_ksp_type","cg")
 opts.setValue("-test_pc_bddc_coarse_check_ksp_norm_type","natural")
 if opts.getBool('cheby',False) :
   opts.setValue("-test_pc_bddc_coarse_ksp_type","chebyshev")
+  opts.setValue("-test_pc_bddc_coarse_ksp_max_it","2")
+  opts.setValue("-test_pc_bddc_coarse_ksp_norm_type","none")
   opts.setValue("-test_pc_bddc_use_coarse_estimates",None)
   opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_coarse_estimates",None)
 
+# additional levels (nlevels > 1)
 for j in range(1, nlevels):
   if lcheck < j+2 :
     opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_check_level", dcheck)
@@ -276,10 +305,12 @@ for j in range(1, nlevels):
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_local_mat_graph",None)
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
-  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_monitor",None)
+  opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_monitor_singular_value",None)
   opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_converged_reason",None)
   if opts.getBool('cheby',False) :
     opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_ksp_type","chebyshev")
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_ksp_max_it","2")
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_ksp_norm_type","none")
     opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_coarse_estimates",None);
 
 # prevent from having a bad coarse solver
@@ -313,3 +344,6 @@ if opts.getBool('view_solution',False) :
   file << solv
   #file = File("outdata/tpotential.pvd")
   #file << solq
+
+PETSc.COMM_WORLD.barrier()
+PETSc.Sys.Print('TOT      xxx     : %g'%(time.time()-start),flush=True)
