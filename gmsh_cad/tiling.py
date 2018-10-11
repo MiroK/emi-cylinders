@@ -29,7 +29,7 @@ def TileMesh(tile, shape, mesh_data={}, TOL=1E-9):
     is the way to encode mesh data of the tile.
     '''
     # All the axis shapes needs to be power of two
-    assert all((((v & (v - 1)) == 0) and v > 0) for v in shape)
+    # assert all((((v & (v - 1)) == 0) and v > 0) for v in shape)
     # Sanity for glueing
     gdim = tile.geometry().dim()
     assert len(shape) <= gdim
@@ -102,45 +102,75 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data={}):
     master_vertices = vertex_mapping.values()
     slave_vertices = vertex_mapping.keys()
 
-    refine = shape[axis]
-    while refine > 1:    
-        n = len(x)
-        # To make the tile piece we add all but the master vertices
-        new_vertices = np.fromiter(sorted(set(range(n)) - set(master_vertices)),
-                                   dtype=int, count=n-len(master_vertices))
-        # Verices of the glued tiles
-        x = np.vstack([x, x[new_vertices] + shift_x])
+    n = len(x)
+    # The idea here is to get the tiled mesh by shifting the tile (first)
+    # one. This way we are always shifting the same vertices/indices
+    base_vertices = np.fromiter(sorted(set(range(n)) - set(master_vertices)),
+                                 dtype=int, count=n-len(master_vertices))
+    # Shifts of these vertices are vertices of the final mesh
+    base_vertices_x = x[base_vertices]
+    
+    n_shift = len(base_vertices)
+    n_shift = np.arange(n_shift)
+    # Need a mapping from local vertex indexing of the reference tile to
+    # the final mesh
+    translate = np.arange(n)    
+    # Structure of the cells is preserved
+    base_cells = cells.copy()
+    # And new cells are just mapped old ones
+    new_cells = np.zeros_like(base_cells)
 
-        # NOTE: using getitem and arrays seems to be on par in efficiency
-        # with dicts. So then I keep translate as array because efficiency
-        translate = np.arange(n)
+    # The position (local wrt tile) of the slaves does not change. Only
+    # the value
+    slave_vertices_base = list(slave_vertices)
+    refine = shape[axis]
+
+    # At this point the vertex_mappings is local wrt to first tile.
+    # When the mapping is updated using transtale(local -> global) we
+    # want to keep the local
+    vertex_mappings_local = [(mapping.keys(), mapping.values()) for mapping in vertex_mappings]
+
+    if mesh_data:
+        local_mesh_data = mesh_data.copy()
+
+    i = 0
+    cells = [cells]
+    while refine > 1:
+        n = len(x)
+        i += 1
+        
+        # Verices of the glued tiles
+        x = np.vstack([x, base_vertices_x + i*shift_x])
+
         # Offset the free
-        translate[new_vertices] = n + np.arange(len(new_vertices))
+        translate[base_vertices] = n + n_shift
         # Those at master positions take slave values
         translate[master_vertices] = slave_vertices
 
-        # Cells of the glued tiles
-        new_cells = np.zeros_like(cells)
-        new_cells.ravel()[:] = translate[cells.flatten()]
+        # Added cells are mapped old ones
+        new_cells.ravel()[:] = translate[base_cells.flatten()]
+        # All cells now are
+        cells.append(new_cells.copy())
 
-        cells = np.vstack([cells, new_cells])
-        # Update the periodicty mapping - slaves are new
-        slave_vertices = translate[slave_vertices]
+        # Update slave index values to point to the globals
+        slave_vertices = translate[slave_vertices_base]
+
         # For the directions that do not evolve we add the periodic pairs
-        for vm in vertex_mappings:
-            vm.update(dict(izip(translate[vm.keys()], translate[vm.values()])))
+        for vmG, (keys, values) in zip(vertex_mappings, vertex_mappings_local):
+            vmG.update(dict(izip(translate[keys], translate[values])))
         # Add the entities defined in terms of the vertices
+        
         if mesh_data:
-            evolve_data(mesh_data, translate)
+             mesh_data = evolve_data(mesh_data, translate, local_mesh_data)
             
         # Iterate
-        refine /= 2
-        shift_x *= 2
+        refine -= 1
+    cells = np.vstack(cells)
     # Discard data not needed in next evolution
     return x, cells, shape[:-1]
 
 
-def evolve_data(data, mapping):
+def evolve_data(data, mapping, local_data):
     '''
     If mapping holds (tdim, tag) -> [tuple of indices]) where indices are 
     w.r.t of old numbering and mapping is old to new we simply add the mapped 
@@ -148,10 +178,11 @@ def evolve_data(data, mapping):
     '''
     for key in data.keys():
         old = data[key]
-            
-        new = np.zeros_like(old)
-        new.ravel()[:] = mapping[old.flatten()]
+
+        new = np.zeros_like(local_data[key])
+        new.ravel()[:] = mapping[local_data[key].flatten()]
         data[key] = np.vstack([old, new])
+
     return data
 
 
