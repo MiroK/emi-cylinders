@@ -106,15 +106,21 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data={}):
     while refine > 1:    
         n = len(x)
         # To make the tile piece we add all but the master vertices
-        new_vertices = np.fromiter(sorted(set(range(n)) - set(master_vertices)),
-                                   dtype=int, count=n-len(master_vertices))
+        #new_vertices = np.fromiter(sorted(set(range(n)) - set(master_vertices)),
+        #                           dtype=int, count=n-len(master_vertices))
+        new_vertices = set(range(n))
+        new_vertices.difference_update(master_vertices)
+        new_vertices = np.fromiter(new_vertices, dtype=int)
+
+        assert np.all(np.diff(new_vertices) > 0)
+        # print '>>', new_vertices
         # Verices of the glued tiles
         x = np.vstack([x, x[new_vertices] + shift_x])
 
         # NOTE: using getitem and arrays seems to be on par in efficiency
         # with dicts. So then I keep translate as array because efficiency
-        translate = np.arange(n)
         # Offset the free
+        translate = np.empty(n, dtype=int)
         translate[new_vertices] = n + np.arange(len(new_vertices))
         # Those at master positions take slave values
         translate[master_vertices] = slave_vertices
