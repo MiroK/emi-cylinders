@@ -70,7 +70,9 @@ def TileMesh(tile, shape, mesh_data={}, TOL=1E-9):
         
         vertex_mappings.append(vertex_mapping)
     # The final piece of information is cells
-    cells = np.fromiter(tile.cells().flat, dtype='uintp').reshape(tile.cells().shape)
+    cells = np.empty((tile.num_cells(), tile.ufl_cell().num_vertices()), dtype='uintp')
+    cells.ravel()[:] = tile.cells().flat
+    #cells = np.fromiter(tile.cells().flat, dtype='uintp').reshape(tile.cells().shape)
         
     # Evolve
     while shape:
@@ -111,14 +113,11 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data={}):
         new_vertices = set(range(n))
         new_vertices.difference_update(master_vertices)
         new_vertices = np.fromiter(new_vertices, dtype=int)
-
         assert np.all(np.diff(new_vertices) > 0)
-        # print '>>', new_vertices
+        
         # Verices of the glued tiles
         x = np.vstack([x, x[new_vertices] + shift_x])
 
-        # NOTE: using getitem and arrays seems to be on par in efficiency
-        # with dicts. So then I keep translate as array because efficiency
         # Offset the free
         translate = np.empty(n, dtype=int)
         translate[new_vertices] = n + np.arange(len(new_vertices))
@@ -126,15 +125,16 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data={}):
         translate[master_vertices] = slave_vertices
 
         # Cells of the glued tiles
-        new_cells = np.zeros_like(cells)
-        new_cells.ravel()[:] = translate[cells.flatten()]
+        new_cells = np.empty_like(cells)
+        new_cells.ravel()[:] = translate[cells.flat]
 
         cells = np.vstack([cells, new_cells])
         # Update the periodicty mapping - slaves are new
         slave_vertices = translate[slave_vertices]
         # For the directions that do not evolve we add the periodic pairs
         for vm in vertex_mappings:
-            vm.update(dict(izip(translate[vm.keys()], translate[vm.values()])))
+            keys, values = np.array(vm.items()).T
+            vm.update(dict(izip(translate[keys], translate[values])))
         # Add the entities defined in terms of the vertices
         if mesh_data:
             evolve_data(mesh_data, translate)
@@ -155,8 +155,8 @@ def evolve_data(data, mapping):
     for key in data.keys():
         old = data[key]
             
-        new = np.zeros_like(old)
-        new.ravel()[:] = mapping[old.flatten()]
+        new = np.empty_like(old)
+        new.ravel()[:] = mapping[old.flat]
         data[key] = np.vstack([old, new])
     return data
 
