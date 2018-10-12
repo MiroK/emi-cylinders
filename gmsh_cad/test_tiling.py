@@ -1,4 +1,4 @@
-from dolfin import *
+
 from tiling import TileMesh, as_meshf, mvc_from_data, mf_from_data
 import numpy as np
 

@@ -7,8 +7,8 @@ from dolfin import (CompiledSubDomain, Mesh, MeshEditor, MeshFunction, MeshValue
 from collections import defaultdict
 from itertools import izip
 import numpy as np
-import operator
 
+from test import make_tile, powers2
 # FIXME: 
 #
 # mesh connectivity to identify entities takes the most time
@@ -28,8 +28,6 @@ def TileMesh(tile, shape, mesh_data={}, TOL=1E-9):
     to each other in the i-th axis. mesh_data : (tdim, tag) -> [entities] 
     is the way to encode mesh data of the tile.
     '''
-    # All the axis shapes needs to be power of two
-    assert all((((v & (v - 1)) == 0) and v > 0) for v in shape)
     # Sanity for glueing
     gdim = tile.geometry().dim()
     assert len(shape) <= gdim
@@ -72,12 +70,13 @@ def TileMesh(tile, shape, mesh_data={}, TOL=1E-9):
     # The final piece of information is cells
     cells = np.empty((tile.num_cells(), tile.ufl_cell().num_vertices()), dtype='uintp')
     cells.ravel()[:] = tile.cells().flat
-    #cells = np.fromiter(tile.cells().flat, dtype='uintp').reshape(tile.cells().shape)
         
-    # Evolve
+    # Evolve the mesh by tiling along the last direction in shape
     while shape:
-        # Evolve is a bang method on vertex_mappings, shifts_x
-        x, cells, shape = evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data=mesh_data)
+        x, cells, vertex_mappings, shape = evolve(x,
+                                                  cells,
+                                                  vertex_mappings,
+                                                  shape, shifts_x, mesh_data=mesh_data)
     info('\tEvolve took %g s ' % t.stop())
 
     # Mesh data is evolved, (x cells) -> to mesh
@@ -86,8 +85,8 @@ def TileMesh(tile, shape, mesh_data={}, TOL=1E-9):
     return mesh, mesh_data
 
         
-def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data={}):
-    '''Evolve tile along the last exis'''
+def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
+    '''Evolve tile along the last axis'''
     axis, gdim = len(shape) - 1, x.shape[1]
     assert gdim > axis >= 0
 
@@ -95,17 +94,40 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data={}):
     if shape[axis] == 1:
         vertex_mappings.pop()  # No longer needed
         shifts_x.pop()  # Do not touch x and cells
-        return x, cells, shape[:-1]
+        return x, cells, vertex_mappings, shape[:-1]
 
-    # Use the axis's periodicity and shifting.
-    # NOTE: used only here and discarded
+    # We have x, cells, ... representing a single cell. To get the tile
+    # repeated shape[::-1] times I don't simply stack next to each other.
+    # Consider 1+1+1+1+1+1+1+1 has 7 additions
+    # But      (4+4) where 4 = 2+2 where 2 = 1+1 is three! So providided
+    # that `+` scales reasonably with input size this is more efficient.
+    # NOTE that here + is really unary. For input other than power of 2
+    # it is necessary to extend it to binary, e.g. 5 = (2+2)+1
+    refine = shape[axis]
+    # Get the sizes of tiles (the real sizes are powers of two of these)
+    tile_sizes = powers2(refine)
+    # Iff refine was a power of two then there is no need to merge as
+    # at the end of tile evolution is the final mesh data. Otherwise
+    # we develop the tiles in their LOCAL numbering => they each start
+    # from their copy
     vertex_mapping, shift_x = vertex_mappings.pop(), shifts_x.pop()
-
     master_vertices = vertex_mapping.values()
     slave_vertices = vertex_mapping.keys()
 
-    refine = shape[axis]
-    while refine > 1:    
+    # Are we even or odd (to keep the initial tile)
+    if 0 in tile_sizes:
+        tiles = [make_tile(x, cells, master_vertices, slave_vertices, vertex_mappings)]
+        # Done with this size
+        tile_sizes.pop()
+
+    # We need to evolve tiles of sizes which are power of 2. The idea
+    # is to get them while evolving to the largest one
+    size = 1
+    max_size = max(tile_sizes)
+
+    target_size = tile_sizes.pop()
+    # The body of the loop corresponds to unary + 
+    while size <= max_size:    
         n = len(x)
         # To make the tile piece we add all but the master vertices
         #new_vertices = np.fromiter(sorted(set(range(n)) - set(master_vertices)),
@@ -129,21 +151,78 @@ def evolve(x, cells, vertex_mappings, shifts_x, shape, mesh_data={}):
         new_cells.ravel()[:] = translate[cells.flat]
 
         cells = np.vstack([cells, new_cells])
-        # Update the periodicty mapping - slaves are new
-        slave_vertices = translate[slave_vertices]
         # For the directions that do not evolve we add the periodic pairs
         for vm in vertex_mappings:
             keys, values = np.array(vm.items()).T
             vm.update(dict(izip(translate[keys], translate[values])))
+
+        # Update the periodicty mapping - slaves are new
+        slave_vertices = translate[slave_vertices]
+
+        # We might be at a needed size
+        if size == target_size:
+            tiles.append(make_tile(x, cells, master_vertices, slave_vertices, vertex_mappings))
+            if tile_sizes:
+                target_size = tile_sizes.pop()
+      
         # Add the entities defined in terms of the vertices
-        if mesh_data:
-            evolve_data(mesh_data, translate)
-            
+        # if mesh_data:
+        #    evolve_data(mesh_data, translate)
+
         # Iterate
-        refine /= 2
+        size += 1
         shift_x *= 2
+    assert not tile_sizes
+
+    tile0 = tiles.pop()
+    if not tiles:
+        return tile0.coords, tile0.cells, tile0.mappings, shape[::-1]
+
+    x, cells, vertex_mappings = tile0.coords, tile0.cells, tile0.mappings
+    slave_vertices = tile0.slave_vertices
+
+    # Now the binary +
+    dx = shift_x / 2**max_size
+    shift_x = 0
+
+    shifts = (2**p for p in powers2(refine))
+    while tiles:
+        next_tile = tiles.pop()
+        
+        y = next_tile.coords
+        n = len(y)
+
+        master_vertices = next_tile.master_vertices
+        new_vertices = set(range(n))
+        new_vertices.difference_update(master_vertices)
+        new_vertices = np.fromiter(new_vertices, dtype=int)
+        assert np.all(np.diff(new_vertices) > 0)
+        
+        # Offset the free
+        translate = np.empty(n, dtype=int)
+        translate[new_vertices] = len(x) + np.arange(len(new_vertices))
+        # Those at master positions take slave values
+        translate[master_vertices] = slave_vertices
+
+        # Verices of the glued tiles
+        shift_x = shift_x + dx*next(shifts)
+        x = np.vstack([x, y[new_vertices] + shift_x])
+        
+        # Cells of the glued tiles
+        new_cells = np.empty_like(next_tile.cells)
+        new_cells.ravel()[:] = translate[next_tile.cells.flat]
+        cells = np.vstack([cells, new_cells])
+
+        # Data
+        for vm, next_vm in zip(vertex_mappings, next_tile.mappings):
+            keys, values = np.array(next_vm.items()).T
+            vm.update(dict(izip(translate[keys], translate[values])))
+        
+        # For next round
+        slave_vertices = translate[next_tile.slave_vertices]
+
     # Discard data not needed in next evolution
-    return x, cells, shape[:-1]
+    return x, cells, vertex_mappings, shape[:-1]
 
 
 def evolve_data(data, mapping):
@@ -159,6 +238,9 @@ def evolve_data(data, mapping):
         new.ravel()[:] = mapping[old.flat]
         data[key] = np.vstack([old, new])
     return data
+
+
+
 
 
 def make_mesh(coordinates, cells, tdim, gdim):

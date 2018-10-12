@@ -3,10 +3,10 @@ from dolfin import UnitSquareMesh, Timer, File
 
 
 tile = UnitSquareMesh(1, 1)
-mesh, mesh_data = TileMesh(tile, shape=(4, 8), mesh_data={})
+mesh, mesh_data = TileMesh(tile, shape=(13, 7), mesh_data={})
 File('foo.pvd') << mesh
 
-if True:
+if False:
     ns = [128, 256, 1024, 2048, 4096]
     dts = []
     for n in ns:
