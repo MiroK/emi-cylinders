@@ -17,6 +17,36 @@ from test import make_tile, powers2
 # make mvc to MeshFunctions then a lot of space could be saved
 
 
+def merge(x, x_cells, shift, master_vertices, slave_vertices, y=None, y_cells=None):
+    
+    if y is None and y_cells is None:
+        y, y_cells = x, x_cells
+
+    n = len(y)
+    # To make the tile piece we add all but the master vertices
+    new_vertices = set(range(n))
+    new_vertices.difference_update(master_vertices)
+    new_vertices = np.fromiter(new_vertices, dtype=int)
+    assert np.all(np.diff(new_vertices) > 0)
+        
+    # Offset the free
+    translate = np.empty(n, dtype=int)
+    translate[new_vertices] = len(x) + np.arange(len(new_vertices))
+    # Those at master positions take slave values
+    translate[master_vertices] = slave_vertices
+
+    # Verices of the glued tiles
+    x = np.vstack([x, y[new_vertices] + shift])
+
+    # Cells of the glued tiles
+    new_cells = np.empty_like(y_cells)
+    new_cells.ravel()[:] = translate[y_cells.flat]
+
+    x_cells = np.vstack([x_cells, new_cells])
+
+    return x, x_cells, translate
+
+
 def TileMesh(tile, shape, mesh_data={}, TOL=1E-9):
     '''
     [tile tile;
@@ -130,28 +160,9 @@ def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
 
     target_size = tile_sizes.pop()
     # The body of the loop corresponds to unary + 
-    while size <= max_size:    
-        n = len(x)
-        # To make the tile piece we add all but the master vertices
-        new_vertices = set(range(n))
-        new_vertices.difference_update(master_vertices)
-        new_vertices = np.fromiter(new_vertices, dtype=int)
-        assert np.all(np.diff(new_vertices) > 0)
-        
-        # Verices of the glued tiles
-        x = np.vstack([x, x[new_vertices] + shift_x])
+    while size <= max_size:
+        x, cells, translate = merge(x, cells, shift_x, master_vertices, slave_vertices)
 
-        # Offset the free
-        translate = np.empty(n, dtype=int)
-        translate[new_vertices] = n + np.arange(len(new_vertices))
-        # Those at master positions take slave values
-        translate[master_vertices] = slave_vertices
-
-        # Cells of the glued tiles
-        new_cells = np.empty_like(cells)
-        new_cells.ravel()[:] = translate[cells.flat]
-
-        cells = np.vstack([cells, new_cells])
         # For the directions that do not evolve we add the periodic pairs
         for vm in vertex_mappings:
             keys, values = np.array(vm.items()).T
@@ -162,7 +173,7 @@ def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
         
         # Add the entities defined in terms of the vertices
         if mesh_data:
-            evolve_data(mesh_data, translate)
+            mesh_data = evolve_data(mesh_data, translate)
 
         # We might be at a needed size
         if size == target_size:
@@ -191,30 +202,11 @@ def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
     shifts = (2**p for p in powers2(refine))
     while tiles:
         next_tile = tiles.pop()
-        
-        y = next_tile.coords
-        n = len(y)
 
-        master_vertices = next_tile.master_vertices
-        new_vertices = set(range(n))
-        new_vertices.difference_update(master_vertices)
-        new_vertices = np.fromiter(new_vertices, dtype=int)
-        assert np.all(np.diff(new_vertices) > 0)
-        
-        # Offset the free
-        translate = np.empty(n, dtype=int)
-        translate[new_vertices] = len(x) + np.arange(len(new_vertices))
-        # Those at master positions take slave values
-        translate[master_vertices] = slave_vertices
-
-        # Verices of the glued tiles
-        shift_x = shift_x + dx*next(shifts)
-        x = np.vstack([x, y[new_vertices] + shift_x])
-        
-        # Cells of the glued tiles
-        new_cells = np.empty_like(next_tile.cells)
-        new_cells.ravel()[:] = translate[next_tile.cells.flat]
-        cells = np.vstack([cells, new_cells])
+        shift_x = shift_x + dx*next(shifts)        
+        x, cells, translate = merge(x, cells, shift_x,
+                                    next_tile.master_vertices, slave_vertices,
+                                    next_tile.coords, next_tile.cells)
 
         # Data
         for vm, next_vm in zip(vertex_mappings, next_tile.mappings):
@@ -222,12 +214,8 @@ def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
             vm.update(dict(izip(translate[keys], translate[values])))
 
         # Data evolve
-        for key in mesh_data.keys():
-            old = mesh_data[key]
-            new = np.empty_like(next_tile.data[key])
-            new.ravel()[:] = translate[next_tile.data[key].flat]
-
-            mesh_data[key] = np.vstack([old, new])
+        if mesh_data:
+            mesh_data = evolve_data(mesh_data, translate, next_tile.data)
         
         # For next round
         slave_vertices = translate[next_tile.slave_vertices]
@@ -235,17 +223,19 @@ def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
     return x, cells, vertex_mappings, shape[:-1]
 
 
-def evolve_data(data, mapping):
+def evolve_data(data, mapping, other=None):
     '''
     If mapping holds (tdim, tag) -> [tuple of indices]) where indices are 
     w.r.t of old numbering and mapping is old to new we simply add the mapped 
     entities.
     '''
+    if other is None: other = data
+    
     for key in data.keys():
         old = data[key]
             
-        new = np.empty_like(old)
-        new.ravel()[:] = mapping[old.flat]
+        new = np.empty_like(other[key])
+        new.ravel()[:] = mapping[other[key].flat]
         data[key] = np.vstack([old, new])
     return data
 
