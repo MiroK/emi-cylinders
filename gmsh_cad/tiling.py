@@ -30,7 +30,7 @@ def TileMesh(tile, shape, mesh_data={}, TOL=1E-9):
     '''
     # Sanity for glueing
     gdim = tile.geometry().dim()
-    assert len(shape) <= gdim
+    assert len(shape) <= gdim, (shape, gdim)
     # While evolve is general mesh writing is limited to simplices only (FIXME)
     # so we bail out early
     assert str(tile.ufl_cell()) in ('interval', 'triangle', 'tetrahedron')
@@ -114,9 +114,12 @@ def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
     master_vertices = vertex_mapping.values()
     slave_vertices = vertex_mapping.keys()
 
+    tiles = []
     # Are we even or odd (to keep the initial tile)
     if 0 in tile_sizes:
-        tiles = [make_tile(x, cells, master_vertices, slave_vertices, vertex_mappings)]
+        tiles = [make_tile(x, cells,
+                           master_vertices, slave_vertices, vertex_mappings,
+                           mesh_data)]
         # Done with this size
         tile_sizes.pop()
 
@@ -130,8 +133,6 @@ def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
     while size <= max_size:    
         n = len(x)
         # To make the tile piece we add all but the master vertices
-        #new_vertices = np.fromiter(sorted(set(range(n)) - set(master_vertices)),
-        #                           dtype=int, count=n-len(master_vertices))
         new_vertices = set(range(n))
         new_vertices.difference_update(master_vertices)
         new_vertices = np.fromiter(new_vertices, dtype=int)
@@ -158,17 +159,19 @@ def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
 
         # Update the periodicty mapping - slaves are new
         slave_vertices = translate[slave_vertices]
+        
+        # Add the entities defined in terms of the vertices
+        if mesh_data:
+            evolve_data(mesh_data, translate)
 
         # We might be at a needed size
         if size == target_size:
-            tiles.append(make_tile(x, cells, master_vertices, slave_vertices, vertex_mappings))
+            tiles.append(make_tile(x, cells,
+                                   master_vertices, slave_vertices, vertex_mappings,
+                                   mesh_data))
             if tile_sizes:
                 target_size = tile_sizes.pop()
       
-        # Add the entities defined in terms of the vertices
-        # if mesh_data:
-        #    evolve_data(mesh_data, translate)
-
         # Iterate
         size += 1
         shift_x *= 2
@@ -176,7 +179,7 @@ def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
 
     tile0 = tiles.pop()
     if not tiles:
-        return tile0.coords, tile0.cells, tile0.mappings, shape[::-1]
+        return tile0.coords, tile0.cells, tile0.mappings, shape[:-1]
 
     x, cells, vertex_mappings = tile0.coords, tile0.cells, tile0.mappings
     slave_vertices = tile0.slave_vertices
@@ -217,10 +220,17 @@ def evolve(x, cells, vertex_mappings, shape, shifts_x, mesh_data={}):
         for vm, next_vm in zip(vertex_mappings, next_tile.mappings):
             keys, values = np.array(next_vm.items()).T
             vm.update(dict(izip(translate[keys], translate[values])))
+
+        # Data evolve
+        for key in mesh_data.keys():
+            old = mesh_data[key]
+            new = np.empty_like(next_tile.data[key])
+            new.ravel()[:] = translate[next_tile.data[key].flat]
+
+            mesh_data[key] = np.vstack([old, new])
         
         # For next round
         slave_vertices = translate[next_tile.slave_vertices]
-
     # Discard data not needed in next evolution
     return x, cells, vertex_mappings, shape[:-1]
 
@@ -238,9 +248,6 @@ def evolve_data(data, mapping):
         new.ravel()[:] = mapping[old.flat]
         data[key] = np.vstack([old, new])
     return data
-
-
-
 
 
 def make_mesh(coordinates, cells, tdim, gdim):

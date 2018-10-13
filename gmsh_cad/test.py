@@ -13,10 +13,12 @@ def powers2(num):
 
 # assert all(sum(2**p for p in powers2(n)) == n for n in (9, 13, 425, 123))
 
-Tile = namedtuple('Tile', ('coords', 'cells', 'master_vertices', 'slave_vertices', 'mappings'))
+Tile = namedtuple('Tile', ('coords', 'cells',
+                           'master_vertices', 'slave_vertices', 'mappings',
+                           'data'))
 
 
-def make_tile(x, cells, master_vertices, slave_vertices, vertex_mappings):
+def make_tile(x, cells, master_vertices, slave_vertices, vertex_mappings, data):
     '''Freeze the tile from data'''
     # The tile consists of coordinates x and cells as indices in to the 
     # cells array. master/slave vertices define a map for gluing in the
@@ -24,4 +26,5 @@ def make_tile(x, cells, master_vertices, slave_vertices, vertex_mappings):
     # mappings
     return Tile(deepcopy(x), deepcopy(cells),
                 np.copy(master_vertices), np.copy(slave_vertices),
-                [vm.copy() for vm in vertex_mappings])
+                [vm.copy() for vm in vertex_mappings],
+                data.copy())
