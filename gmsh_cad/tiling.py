@@ -360,7 +360,7 @@ if __name__ == '__main__':
     assert ext == '.h5'
 
     shape = (args.n, args.m)
-    assert all((((v & (v - 1)) == 0) and v > 0) for v in shape)
+    # assert all((((v & (v - 1)) == 0) and v > 0) for v in shape)
     
     # Load the tile mesh
     comm = mpi_comm_world()

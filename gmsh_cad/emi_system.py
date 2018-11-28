@@ -108,4 +108,10 @@ for i in range(A.size(0)):
         print (i, vals), i in dm
 print A.size(0), A.norm('linf')
 
-print np.sort(np.abs(np.linalg.eigvals(A.array())))[0:20]
+# print np.sort(np.abs(np.linalg.eigvals(A.array())))[0:20]
+
+wh = Function(W)
+solve(A, wh.vector(), b)
+
+x = wh.vector().get_local()
+print np.any(np.isnan(x)), np.any(np.isinf(x))
