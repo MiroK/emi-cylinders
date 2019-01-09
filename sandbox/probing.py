@@ -1,3 +1,4 @@
+from __future__ import print_function
 from dolfin import Cell, Point
 from mpi4py import MPI as pyMPI
 import numpy as np
@@ -29,11 +30,15 @@ class PointProbe(object):
         size = V.ufl_element().value_size()
         # Build the sampling matrix
         evals = []
+        dm = V.dofmap()
         for x, cell in zip(locations, cells_for_x):
             # If we own the cell we alloc stuff and precompute basis matrix
             if cell is not None:
                 basis_matrix = np.zeros(size*element.space_dimension())
                 coefficients = np.zeros(element.space_dimension())
+                # NOTE: avoid using DOLFIN's restric; instead reach into
+                # function's vector
+                cell_dofs = dm.cell_dofs(cell) + dm.ownership_range()[0]
 
                 cell = Cell(mesh, cell)
                 vertex_coords, orientation = cell.get_vertex_coordinates(), cell.orientation()
@@ -42,9 +47,9 @@ class PointProbe(object):
 
                 basis_matrix = basis_matrix.reshape((element.space_dimension(), size)).T
                 # Make sure foo is bound to right objections
-                def foo(u, c=coefficients, A=basis_matrix, elm=cell, vc=vertex_coords):
+                def foo(u_vec, c=coefficients, A=basis_matrix, dofs=cell_dofs):
                     # Restrict for each call using the bound cell, vc ...
-                    u.restrict(c, element, elm, vc, elm)
+                    c[:] = u_vec.getValues(dofs)
                     # A here is bound to the right basis_matrix
                     return np.dot(A, c)
             # Otherwise we use the value which plays nicely with MIN reduction
@@ -64,7 +69,8 @@ class PointProbe(object):
 
     def sample(self, u):
         '''Evaluate the probes listing the time as t'''
-        self.readings_local[:] = np.hstack([f(u) for f in self.probes])    # Get local
+        u_vec = as_backend_type(u.vector()).vec()  # This is PETSc
+        self.readings_local[:] = np.hstack([f(u_vec) for f in self.probes])    # Get local
         self.comm.Reduce(self.readings_local, self.readings, op=pyMPI.MIN)  # Sync
 
         return self.readings.reshape((self.nprobes, -1))
@@ -103,4 +109,4 @@ if __name__ == '__main__':
             t += i*0.1
             v = t*(x + 2*y)
             error = max(error, np.linalg.norm(v - table[:, 2+i]))
-        print error
+        print(error)
