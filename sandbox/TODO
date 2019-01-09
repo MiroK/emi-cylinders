@@ -1,7 +1,10 @@
+emi_sheet_solver.py is not yet python3; needs cbc.beat
+- test with direct solver
+-------------------------------------------------------------------------------
 Wire up Stefano's solver
-Test on abel with 1 size
-A bit bigger
---------------------------
+- Test on abel with 1 size
+- A bit bigger
+-------------------------------------------------------------------------------
 Documentation
---------------------------
+-------------------------------------------------------------------------------
 Slicing probe

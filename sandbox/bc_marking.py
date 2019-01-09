@@ -46,8 +46,8 @@ if __name__ == '__main__':
     File('cell_f.pvd') << cell_f
 
     # The real deal
-    comm = mpi_comm_world()
-    h5 = HDF5File(comm, '../gmsh_cad/tile_1_narrow.h5', 'r')
+    comm = MPI.comm_world
+    h5 = HDF5File(comm, 'tile_1_narrow.h5', 'r')
     mesh = Mesh()
     h5.read(mesh, 'mesh', False)
 

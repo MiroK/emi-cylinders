@@ -43,9 +43,9 @@ class PointProbe(object):
                 cell = Cell(mesh, cell)
                 vertex_coords, orientation = cell.get_vertex_coordinates(), cell.orientation()
                 # Eval the basis once
-                element.evaluate_basis_all(basis_matrix, x, vertex_coords, orientation)
-
+                basis_matrix.ravel()[:] = element.evaluate_basis_all(x, vertex_coords, orientation)
                 basis_matrix = basis_matrix.reshape((element.space_dimension(), size)).T
+                
                 # Make sure foo is bound to right objections
                 def foo(u_vec, c=coefficients, A=basis_matrix, dofs=cell_dofs):
                     # Restrict for each call using the bound cell, vc ...
