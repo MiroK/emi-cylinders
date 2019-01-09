@@ -1,4 +1,6 @@
-from cbcbeat.cellsolver import CardiacODESolver
+# from cbcbeat.cellsolver import CardiacODESolver
+from xalbrain.cellsolver import CardiacODESolver
+
 from parsimonious import Parsimonious
 from emi_pde import pde_components
 from probing import PointProbe
@@ -136,12 +138,12 @@ potential_assigner = FunctionAssigner(V, W.sub(1))
 uh = Function(V)
 potential_assigner.assign(uh, wh.sub(1))
 
-probes = PointProbe(uh, probe_points)
+# probes = PointProbe(uh, probe_points)
 # Initial reading
-probe_values = probes.sample(uh)
+# probe_values = probes.sample(uh)
 
 # The idea is to have columns of t and potentials readings
-if pyMPI.COMM_WORLD.rank == 0: table = np.r_[interval[0], probe_values[:, 0]]
+# if pyMPI.COMM_WORLD.rank == 0: table = np.r_[interval[0], probe_values[:, 0]]
     
 step_count = 0
 for ((t0, t1), ode_solution) in ode_solutions:
@@ -175,12 +177,12 @@ for ((t0, t1), ode_solution) in ode_solutions:
 
         # IO
         potential_assigner.assign(uh, wh.sub(1))
-        probe_values = probes.sample(uh)
+        # probe_values = probes.sample(uh)
 
-        if pyMPI.COMM_WORLD.rank == 0:
-            table = np.c_[table, np.r_[float(t1), probe_values[:, 0]]]
+        # if pyMPI.COMM_WORLD.rank == 0:
+        #    table = np.c_[table, np.r_[float(t1), probe_values[:, 0]]]
 
 # Final dump
-if pyMPI.COMM_WORLD.rank == 0:
-    np.savetxt('probe_readings.txt', table,
-               header='First row it time, remaining are probe readings of potentials')
+#if pyMPI.COMM_WORLD.rank == 0:
+#    np.savetxt('probe_readings.txt', table,
+#               header='First row it time, remaining are probe readings of potentials')

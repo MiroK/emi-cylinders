@@ -47,7 +47,7 @@ def merge(x, x_cells, shift, master_vertices, slave_vertices, y=None, y_cells=No
     return x, x_cells, translate
 
 
-def TileMesh(tile, shape, mesh_data={}, TOL=1E-9):
+def TileMesh(tile, shape, mesh_data={}, TOL=1E-9, scale_x=1E-4, shift_origin=True):
     '''
     [tile tile;
      tile tile;
@@ -73,6 +73,15 @@ def TileMesh(tile, shape, mesh_data={}, TOL=1E-9):
     # We want to evolve cells, vertices of the mesh using geometry information
     # and periodicity info
     x = tile.coordinates()
+
+    # Scale the coordinates to of the tile (so that later the tiled mesh
+    # need not to be changed).
+    x[:] += scale_x
+
+    # Maker lll cordinate 0, 0, 0
+    if shift_origin:
+        min_x = np.min(x, axis=0)
+    
     min_x = np.min(x, axis=0)
     max_x = np.max(x, axis=0)
     shifts = max_x - min_x
