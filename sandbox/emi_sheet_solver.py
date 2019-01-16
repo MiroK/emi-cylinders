@@ -1,5 +1,4 @@
-# from cbcbeat.cellsolver import CardiacODESolver
-from xalbrain.cellsolver import CardiacODESolver
+from cbcbeat.cellsolver import CardiacODESolver
 
 from parsimonious import Parsimonious
 from emi_pde import pde_components
@@ -11,9 +10,9 @@ import numpy as np
 
 
 # Setup 
-mesh_file = '/home/mirok/Documents/MkSoftware/tieler/tiles/tile_1_hein_GMSH307_1_1.h5'
+mesh_file = './tile_1_hein_GMSH307_1_1.h5'
 # Get mesh to setup the ode solver
-comm = mpi_comm_world()  # FIXME!
+comm = MPI.comm_world  # FIXME!
 h5 = HDF5File(comm, mesh_file, 'r')
 mesh = Mesh()
 h5.read(mesh, 'mesh', False)
@@ -45,7 +44,8 @@ ode_solver = CardiacODESolver(mesh,
                               I_s=ode_parameters['stimulus'])
 
 interval = (0.0, 5.0)
-    
+
+
 # NOTE: a generator; nothing is computed so far
 ode_solutions = ode_solver.solve(interval, ode_parameters['dt'])  # Potentials only
 
@@ -100,6 +100,7 @@ A, b = PETScMatrix(), PETScVector()
 emi_assembler = SystemAssembler(a, L, bcs)
 emi_assembler.assemble(A)
 
+
 # Solution loop consists of ODE solves in interval and every emi_dt/ode_dt
 # there is an exchange between transmembrane potentials
 fem_ode_sync = int(emi_parameters['dt']/ode_parameters['dt'])
@@ -121,9 +122,11 @@ P0_to_P1 = emi_pieces['toODE']
 # P1 -> ODE(0)
 to_ODE_from_P1 = FunctionAssigner(ode_solver.VS.sub(0), P1)
 
+
 solver = LUSolver()
 solver.set_operator(A)
-solver.parameters['reuse_factorization'] = True
+# FIXME: how to get it then, config via PETSc?
+#solver.parameters['reuse_factorization'] = True
 
 # For now the output consists of point values along x through domain center
 no_points = 5
@@ -138,12 +141,12 @@ potential_assigner = FunctionAssigner(V, W.sub(1))
 uh = Function(V)
 potential_assigner.assign(uh, wh.sub(1))
 
-# probes = PointProbe(uh, probe_points)
+probes = PointProbe(uh, probe_points)
 # Initial reading
-# probe_values = probes.sample(uh)
+probe_values = probes.sample(uh)
 
 # The idea is to have columns of t and potentials readings
-# if pyMPI.COMM_WORLD.rank == 0: table = np.r_[interval[0], probe_values[:, 0]]
+if pyMPI.COMM_WORLD.rank == 0: table = np.r_[interval[0], probe_values[:, 0]]
     
 step_count = 0
 for ((t0, t1), ode_solution) in ode_solutions:
@@ -173,16 +176,16 @@ for ((t0, t1), ode_solution) in ode_solutions:
         to_ODE_from_P1.assign(ode_solution.sub(0), p_ode)
 
         # Check
-        # print np.any(np.isnan(wh.vector().get_local())), np.any(np.isinf(wh.vector().get_local()))
+        print(np.any(np.isnan(wh.vector().get_local())), np.any(np.isinf(wh.vector().get_local())))
 
         # IO
         potential_assigner.assign(uh, wh.sub(1))
-        # probe_values = probes.sample(uh)
+        probe_values = probes.sample(uh)
 
-        # if pyMPI.COMM_WORLD.rank == 0:
-        #    table = np.c_[table, np.r_[float(t1), probe_values[:, 0]]]
+        if pyMPI.COMM_WORLD.rank == 0:
+            table = np.c_[table, np.r_[float(t1), probe_values[:, 0]]]
 
 # Final dump
-#if pyMPI.COMM_WORLD.rank == 0:
-#    np.savetxt('probe_readings.txt', table,
-#               header='First row it time, remaining are probe readings of potentials')
+if pyMPI.COMM_WORLD.rank == 0:
+    np.savetxt('probe_readings.txt', table,
+               header='First row it time, remaining are probe readings of potentials')

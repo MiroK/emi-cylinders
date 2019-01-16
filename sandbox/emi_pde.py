@@ -119,7 +119,7 @@ def pde_components(mesh, h5, emi_parameters):
 if __name__ == '__main__':
     mesh_file = '../gmsh_cad/tile_1_narrow.h5'
 
-    comm = mpi_comm_world()
+    comm = MPI.comm_world
     h5 = HDF5File(comm, mesh_file, 'r')
     mesh = Mesh()
     h5.read(mesh, 'mesh', False)  
@@ -132,4 +132,4 @@ if __name__ == '__main__':
                       'p0': Constant(1),
                       'I_ion': Constant(1)}
 
-    print pde_components(mesh, h5, emi_parameters)
+    print(pde_components(mesh, h5, emi_parameters))

@@ -1,5 +1,5 @@
 from __future__ import print_function
-from dolfin import Cell, Point
+from dolfin import Cell, Point, as_backend_type
 from mpi4py import MPI as pyMPI
 import numpy as np
 
