@@ -113,9 +113,9 @@ opts = PETSc.Options()
 opts.setValue("-test_matis_fixempty", None)
 
 Amat = A.mat()
-Amat().setOptionsPrefix("test_")
-Amat().setType("is")
-Amat().setFromOptions()
+Amat.setOptionsPrefix("test_")
+Amat.setType("is")
+Amat.setFromOptions()
 
 # Assembly
 emi_assembler = SystemAssembler(a, L, bcs)
@@ -231,8 +231,8 @@ P0_to_P1 = emi_pieces['toODE']
 to_ODE_from_P1 = FunctionAssigner(ode_solver.VS.sub(0), P1)
 
 
-solver = LUSolver()
-solver.set_operator(A)
+# solver = LUSolver()
+# solver.set_operator(A)
 # FIXME: how to get it then, config via PETSc?
 #solver.parameters['reuse_factorization'] = True
 
@@ -255,6 +255,10 @@ probe_values = probes.sample(uh)
 
 # The idea is to have columns of t and potentials readings
 if pyMPI.COMM_WORLD.rank == 0: table = np.r_[interval[0], probe_values[:, 0]]
+
+# PETS.Vec s for solver
+b_vec = b.vec()
+x_vec = as_backend_type(wh.vector()).vec()
     
 step_count = 0
 for ((t0, t1), ode_solution) in ode_solutions:
@@ -273,7 +277,7 @@ for ((t0, t1), ode_solution) in ode_solutions:
         # New (sigma, u, p) ...
         info('\tSolving linear system of size %d' % A.size(0))
         
-        solver.solve(wh.vector(), b)
+        ksp.solve(b_vec, x_vec)
 
         # Update emi potential to standalone DLT function. To emi from wh(2)
         to_P0_from_EMI.assign(p_emi, wh.sub(2))
