@@ -1,3 +1,7 @@
+import petsc4py, sys
+petsc4py.init(sys.argv)
+from petsc4py import PETSc
+
 from cbcbeat.cellsolver import CardiacODESolver
 
 from parsimonious import Parsimonious
@@ -97,9 +101,113 @@ a, L, bcs = (emi_pieces[key] for key in ('a', 'L', 'bcs'))
 
 A, b = PETScMatrix(), PETScVector()
 
+# --------------------------------------------------------------------
+# Setup Stefano's solver
+# --------------------------------------------------------------------
+opts = PETSc.Options()
+
+# In the presence of internal facet terms, the local to global maps have ghost cells (through shared facets)
+# However, only one process insert values there -> we need to prune empty local rows/columns
+# from the other processes. This can be done programmatically from PETSc, but it is currently
+# in a development branch
+opts.setValue("-test_matis_fixempty", None)
+
+Amat = A.mat()
+Amat().setOptionsPrefix("test_")
+Amat().setType("is")
+Amat().setFromOptions()
+
+# Assembly
 emi_assembler = SystemAssembler(a, L, bcs)
 emi_assembler.assemble(A)
 
+Amat.viewFromOptions("-my_view")
+
+# Create PETSc Krylov solver (from petsc4py)
+ksp = PETSc.KSP()
+ksp.create(PETSc.COMM_WORLD)
+ksp.setOptionsPrefix("test_")
+
+# Set the Krylov solver type and set tolerances
+# We can use CG since DRT dofs will never be part of the interface between subdomains
+# This is because DRT dofs are only coupled to RT dofs and not cell dofs
+# Note: If DRT dofs were coupled to DG dofs, we could have put all the DRT dofs (see setBDDCPrimalVerticesIS) that lie on the
+#       interface between subdomains in the primal space
+#       The coarse matrix will be diagonal on those DRT dofs (most of them) that are not on
+#       the intra/extra cellular interface
+ksp.setType("cg")
+ksp.setTolerances(rtol=1.0e-8, atol=1.0e-12, divtol=1.0e10, max_it=300)
+ksp.setOperators(Amat)
+pc = ksp.getPC()
+pc.setType("bddc")
+
+# Options
+opts.setValue("-test_ksp_view", None)
+opts.setValue("-test_ksp_converged_reason", None)
+opts.setValue("-test_ksp_monitor_singular_value", None)
+opts.setValue("-test_ksp_norm_type", "natural")
+
+# Don't turn these off
+opts.setValue("-test_pc_bddc_detect_disconnected", None)
+opts.setValue("-test_pc_bddc_use_faces", None)
+opts.setValue("-test_pc_bddc_benign_trick", None)
+opts.setValue("-test_pc_bddc_nonetflux", None)
+opts.setValue("-test_pc_bddc_schur_exact", None)
+opts.setValue("-test_pc_bddc_use_deluxe_scaling", None)
+opts.setValue("-test_pc_bddc_deluxe_zerorows", None)
+opts.setValue("-test_pc_bddc_use_local_mat_graph", "0")
+opts.setValue("-test_pc_bddc_adaptive_userdefined", None)
+
+# Better off you have MUMPS or SUITESPARSE for the factorizations
+
+# Sometimes MUMPS fails with error -9 (increase Schur workspace....this is annoying)
+opts.setValue("-test_sub_schurs_mat_mumps_icntl_14",500)
+opts.setValue("-mat_mumps_icntl_14",500)
+
+# Local solvers (MUMPS)
+opts.setValue("-test_pc_bddc_dirichlet_pc_type","cholesky") # This is actually LDL^T
+opts.setValue("-test_pc_bddc_neumann_pc_type","cholesky") # This is actually LDL^T
+opts.setValue("-test_pc_bddc_dirichlet_pc_factor_mat_solver_type","mumps")
+opts.setValue("-test_pc_bddc_neumann_pc_factor_mat_solver_type","mumps")
+
+nlevels = 1
+# Coarse solver (MUMPS or BDDC)
+opts.setValue("-test_pc_bddc_coarse_pc_factor_mat_solver_type","mumps")
+if nlevels < 1:
+    opts.setValue("-test_pc_bddc_coarse_pc_type","cholesky") # This is actually LDL^T
+
+opts.setValue("-test_pc_bddc_levels",nlevels)
+opts.setValue("-test_pc_bddc_coarse_sub_schurs_mat_mumps_icntl_14",500)
+opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_deluxe_scaling",None)
+opts.setValue("-test_pc_bddc_coarse_pc_bddc_deluxe_zerorows",None)
+opts.setValue("-test_pc_bddc_coarse_pc_bddc_schur_exact",None)
+opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_local_mat_graph",None)
+opts.setValue("-test_pc_bddc_coarse_check_ksp_monitor",None)
+opts.setValue("-test_pc_bddc_coarse_check_ksp_converged_reason",None)
+opts.setValue("-test_pc_bddc_coarse_check_ksp_type","cg")
+opts.setValue("-test_pc_bddc_coarse_check_ksp_norm_type","natural")
+
+for j in range(nlevels):
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_sub_schurs_mat_mumps_icntl_14",500)
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_deluxe_scaling",None)
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_deluxe_zerorows",None)
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_schur_exact",None)
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_local_mat_graph",None)
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_ksp_type","chebyshev")
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_monitor",None)
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_converged_reason",None)
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
+    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
+
+# prevent to have a bad coarse solver
+opts.setValue("-test_pc_bddc_coarse_l3_redundant_pc_factor_mat_solver_package","mumps");
+opts.setValue("-test_pc_bddc_coarse_l2_redundant_pc_factor_mat_solver_package","mumps");
+opts.setValue("-test_pc_bddc_coarse_l1_redundant_pc_factor_mat_solver_package","mumps");
+opts.setValue("-test_pc_bddc_coarse_redundant_pc_factor_mat_solver_package","mumps")
+
+ksp.setFromOptions()
 
 # Solution loop consists of ODE solves in interval and every emi_dt/ode_dt
 # there is an exchange between transmembrane potentials
@@ -164,6 +272,7 @@ for ((t0, t1), ode_solution) in ode_solutions:
       
         # New (sigma, u, p) ...
         info('\tSolving linear system of size %d' % A.size(0))
+        
         solver.solve(wh.vector(), b)
 
         # Update emi potential to standalone DLT function. To emi from wh(2)
@@ -189,3 +298,5 @@ for ((t0, t1), ode_solution) in ode_solutions:
 if pyMPI.COMM_WORLD.rank == 0:
     np.savetxt('probe_readings.txt', table,
                header='First row it time, remaining are probe readings of potentials')
+
+del pc, ksp
