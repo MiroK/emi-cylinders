@@ -12,10 +12,11 @@ parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -ffast-math -march=nati
 parameters['ghost_mode'] = 'shared_facet'
 opts = PETSc.Options()
 
-mesh_file = '2Dtest/cell_grid_2d.h5'
+#mesh_file = '2Dtest/cell_grid_2d.h5'
 #mesh_file = '500Kdofs/cell_grid.h5'
 #mesh_file = '8Mdofs/cell_grid.h5'
 #mesh_file = 'cell_grid_2d.h5'
+mesh_file = '../sandbox/tile_1_hein_GMSH307_1_1.h5'
 
 comm = MPI.comm_world
 h5 = HDF5File(comm, mesh_file, 'r')
@@ -28,11 +29,11 @@ mesh.coordinates()[:] *= 1E-4
 # of the domain - this is where typically zero DirichletBCs are applied
 # for the potential
 surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1)
-h5.read(surfaces, 'facet')
+h5.read(surfaces, 'surfaces')
 # The domain is split into 2 subdomains marked as 1 and 2 (cell interior,
 # cell exterior). These differ by conductivities
 volumes = MeshFunction('size_t', mesh, mesh.topology().dim())
-h5.read(volumes, 'physical')
+h5.read(volumes, 'volumes')
 
 cell = mesh.ufl_cell()
 # We have 3 spaces S for sigma = -kappa*grad(u)   [~electric field]
