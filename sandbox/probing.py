@@ -75,22 +75,144 @@ class PointProbe(object):
 
         return self.readings.reshape((self.nprobes, -1))
 
+    
+class ApproxPointProbe(object):
+    '''Eval u at locations by samling the nearest dof.'''
+    # So this makes sence for DOFs which are point evaluations
+    def __init__(self, u, locations):
+        assert u.ufl_shape == ()
+        # Let's do the snap to nearest search
+        V = u.function_space()
+        dofs_x = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
+
+        nearest, distances = np.zeros(len(locations), dtype=int), np.zeros(len(locations))
+        for i, y in enumerate(locations):
+            dist = np.linalg.norm(dofs_x - y, 2, axis=1)
+            nearest_dof_id = np.argmin(dist)
+
+            nearest[i] = nearest_dof_id
+            distances[i] = dist[nearest_dof_id]
+
+        comm = mesh.mpi_comm()
+
+        # Now decide which is closest globally; that cpu should do the
+        # sampling then
+        point_ranks = np.zeros_like(nearest)
+        for i, d in enumerate(distances):
+            point_ranks[i] = np.argmin(comm.allgather(d))
+
+        # We will lookup by global index
+        nearest += V.dofmap().ownership_range()[0]
+
+        evals = []
+        for p_rank, dof in zip(point_ranks, nearest):
+            
+            if p_rank == comm.rank:
+                p_eval = lambda u, dof=dof: u.getValues([dof])
+            else:
+                p_eval = lambda u, dof=dof: np.array([np.finfo(float).max])
+                
+            evals.append(p_eval)
+
+        self.probes = evals
+        # To get the correct sampling on all cpus we reduce the local samples across
+        # cpus
+        self.comm = pyMPI.COMM_WORLD
+        self.readings = np.zeros_like(distances)
+        self.readings_local = np.zeros_like(self.readings)
+        # Return the value in the shape of vector/matrix
+        self.nprobes = len(locations)
+
+    def sample(self, u):
+        '''Evaluate the probes listing the time as t'''
+        u_vec = as_backend_type(u.vector())
+        u_vec.update_ghost_values()
+        u_vec = u_vec.vec()  # This is PETSc
+        self.readings_local[:] = np.hstack([f(u_vec) for f in self.probes])    # Get local
+        self.comm.Reduce(self.readings_local, self.readings, op=pyMPI.MIN)  # Sync
+
+        return self.readings.reshape((self.nprobes, -1))
+
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
     from dolfin import *
 
+    if False:
+        mesh = UnitSquareMesh(256, 256)
+
+        theta = np.linspace(0, 2*np.pi, 10)
+        pts = np.c_[0.5 + 0.25*np.sin(theta), 0.5 + 0.25*np.cos(theta)]
+
+        V = FunctionSpace(mesh, 'CG', 1)
+        f = Expression('t*(x[0] + 2*x[1])', degree=1, t=1)
+
+        v = interpolate(f, V)
+        probes = PointProbe(v, pts)
+
+        table = pts
+        for i in range(10):
+            f.t += i*0.1
+            v.assign(interpolate(f, V))
+
+            probe_values = probes.sample(v)
+            if probes.comm.rank == 0:
+                table = np.c_[table, probe_values.flatten()]
+
+        if probes.comm.rank == 0:
+            x, y = pts.T
+
+            t = 1
+            error = 0
+            for i in range(10):
+                t += i*0.1
+                v = t*(x + 2*y)
+                error = max(error, np.linalg.norm(v - table[:, 2+i]))
+            print(error)
+
+    # Approx one
     mesh = UnitSquareMesh(256, 256)
 
-    theta = np.linspace(0, 2*np.pi, 10)
-    pts = np.c_[0.5 + 0.25*np.sin(theta), 0.5 + 0.25*np.cos(theta)]
+    pts = np.array([[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]])
 
     V = FunctionSpace(mesh, 'CG', 1)
     f = Expression('t*(x[0] + 2*x[1])', degree=1, t=1)
-    
-    v = interpolate(f, V)
-    probes = PointProbe(v, pts)
 
+    v = interpolate(f, V)
+    probes = ApproxPointProbe(v, pts)
+    
+    table = pts
+    for i in range(10):
+        f.t += i*0.1
+        v.assign(interpolate(f, V))
+        
+        probe_values = probes.sample(v)
+        if probes.comm.rank == 0:
+            table = np.c_[table, probe_values.flatten()]
+
+    if probes.comm.rank == 0:
+        x, y = pts.T
+
+        t = 1
+        error = 0
+        for i in range(10):
+            t += i*0.1
+            v = t*(x + 2*y)
+            error = max(error, np.linalg.norm(v - table[:, 2+i]))
+        print(error)
+
+    # We really want to use it on DLT
+    mesh = UnitSquareMesh(512, 512)
+
+    pts = np.array([[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]])
+    # We expect slightlyy off
+    V = FunctionSpace(mesh, 'Discontinuous Lagrange Trace', 0)
+    f = Expression('t*(x[0] + 2*x[1])', degree=1, t=1)
+
+    v = interpolate(f, V)
+
+    probes = ApproxPointProbe(v, pts)
+    
     table = pts
     for i in range(10):
         f.t += i*0.1
