@@ -132,7 +132,8 @@ class ApproxPointProbe(object):
         assert u.ufl_shape == ()
         # Let's do the snap to nearest search
         V = u.function_space()
-        dofs_x = V.tabulate_dof_coordinates().reshape((-1, V.mesh().geometry().dim()))
+        mesh = V.mesh()
+        dofs_x = V.tabulate_dof_coordinates().reshape((-1, mesh.geometry().dim()))
 
         nearest, distances = np.zeros(len(locations), dtype=int), np.zeros(len(locations))
         for i, y in enumerate(locations):
