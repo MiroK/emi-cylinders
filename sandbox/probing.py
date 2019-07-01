@@ -4,6 +4,55 @@ from mpi4py import MPI as pyMPI
 import numpy as np
 
 
+def probe_cell_at(m, n, level, point):
+    '''Sampling points for [m, n] Hein cell.
+
+    Level specifies Z coordinate: the points are then as
+    
+    l=2 or -2
+     ________________
+    |_|            |_|
+    |_|-1         1|_|
+    |_|____________|_|
+    
+    l=1 or -1
+      ________________
+      |_|            |_|
+    -2|_|-1         1|_|2
+      |_|____________|_|
+
+    l=0
+      ________________
+    -4|_|-3         4|_|3
+    -2|_|-1         1|_|2
+      |_|____________|_|
+    '''
+    # In base cell that touches [0, 0, 0]
+    z = {0: 0,
+         1: 8,
+         -1: -8,
+         2: 11.5,
+         -2: -11.5}[level]
+
+    (x, y) = {0: {1: (98, 8), 2: (100, 8), 3: (100, 15), 4: (98, 15),
+                  -1: (2, 8), -2: (0, 8), -3: (2, 15), -4: (0, 15)},
+              #
+              1: {1: (98, 11.5), -1: (2, 11.5), 2: (100, 11.5), -2: (0, 11.5)},
+              -1: {1: (98, 11.5), -1: (2, 11.5), 2: (100, 11.5), -2: (0, 11.5)},
+              #
+              2: {1: (98, 11.5), -1: (2, 11.5)},
+              -2: {1: (98, 11.5), -1: (2, 11.5)},
+    }[level][point]
+
+    point = np.array([x, y, z])
+    # Shift
+    point += np.array([m*100, n*23, 0])
+    # In mm
+    point *= 1E-3
+
+    return point
+
+
 class PointProbe(object):
     '''Perform efficient evaluation of function u at fixed points'''
     def __init__(self, u, locations):
