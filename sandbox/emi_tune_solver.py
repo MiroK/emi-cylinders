@@ -6,7 +6,7 @@ from cbcbeat.cellsolver import CardiacODESolver
 
 from parsimonious import Parsimonious
 from emi_pde_tune import pde_components
-from probing import PointProbe
+from probing import ApproxPointProbe, probe_cell_at
 
 from mpi4py import MPI as pyMPI
 from dolfin import *
@@ -14,7 +14,7 @@ import numpy as np
 
 
 # Setup 
-mesh_file = './tile_1_hein_GMSH307_1_1.h5'
+mesh_file = './tile_1_hein_GMSH307_10_1.h5'
 # Get mesh to setup the ode solver
 comm = MPI.comm_world  # FIXME!
 h5 = HDF5File(comm, mesh_file, 'r')
@@ -23,10 +23,19 @@ h5.read(mesh, 'mesh', False)
 
 # Mesh box dimensions in mm. So mesh is expected to be nn as well.
 # NOTE: update by hand - waste of resouces to do it with mpi
-ncells_x, ncells_y = 20, 4
+ncells_x, ncells_y = 10, 1
 Length = 0.1*ncell_x    # In x as multiples of single cell
 Width = 0.025*ncells_y   # In y
 Height = 0.025
+
+# Here are some sample points for transmembrane potential: On top surface
+# of the cylinder
+sample_points = np.array([probe_cell_at(m, n=0, level=2, point=p)
+                         for m in range(ncell_x) for p in (-1, 1)])
+
+print(sample_points)
+
+exit()
 
 # ODE setup
 C_m = 0.01 #microF*mm**-2

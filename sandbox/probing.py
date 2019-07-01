@@ -187,6 +187,31 @@ class ApproxPointProbe(object):
 if __name__ == '__main__':
     from dolfin import *
 
+    mesh_file = 'tile_1_hein_GMSH307_10_1.h5'
+    # Get mesh to setup the ode solver
+    comm = MPI.comm_world  # FIXME!
+    h5 = HDF5File(comm, mesh_file, 'r')
+    mesh = Mesh()
+    h5.read(mesh, 'mesh', False)
+    
+    # Sample a tidge
+    points = [probe_cell_at(m=m, n=0, level=2, point=p)
+              for m in range(10) for p in (-1, 1)]
+    print(points)
+
+    V = FunctionSpace(mesh, 'CG', 1)
+    d = Function(V)
+
+    x = V.tabulate_dof_coordinates().reshape((V.dim(), -1))
+    print(x.max(axis=0) - x.min(axis=0))
+    print([np.min(np.linalg.norm(x-p, 2, axis=1))
+           for p in points])
+
+    d.vector().set_local(np.linalg.norm(x-points[4], 2, axis=1))
+
+    File('foo.pvd') << d
+    
+    exit()
     if False:
         mesh = UnitSquareMesh(256, 256)
 
