@@ -149,11 +149,12 @@ class ApproxPointProbe(object):
         # sampling then
         point_ranks = np.zeros_like(nearest)
         for i, d in enumerate(distances):
+            print('>>>', comm.allgather(d))
             point_ranks[i] = np.argmin(comm.allgather(d))
-
+        print('<<<', point_ranks)
         # We will lookup by global index
         nearest += V.dofmap().ownership_range()[0]
-
+        print('???', nearest)
         evals = []
         for p_rank, dof in zip(point_ranks, nearest):
             

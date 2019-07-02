@@ -7,11 +7,12 @@ from cbcbeat.cellsolver import CardiacODESolver
 from parsimonious import Parsimonious
 from emi_pde_tune import pde_components
 from probing import ApproxPointProbe, probe_cell_at
+from dlt_io import DltWriter
 
 from mpi4py import MPI as pyMPI
 from dolfin import *
 import numpy as np
-
+import os
 
 # Setup 
 mesh_file = './tile_1_hein_GMSH307_1_1.h5'
@@ -23,7 +24,7 @@ h5.read(mesh, 'mesh', False)
 
 # Mesh box dimensions in mm. So mesh is expected to be nn as well.
 # NOTE: update by hand - waste of resouces to do it with mpi
-ncells_x, ncells_y = 1, 1
+ncells_x, ncells_y = map(int, os.path.splitext(mesh_file)[0].split('_')[-2:])
 Length = 0.1*ncells_x    # In x as multiples of single cell
 Width = 0.025*ncells_y   # In y
 Height = 0.025
@@ -226,46 +227,46 @@ if pyMPI.COMM_WORLD.rank == 0:
 b_vec = b.vec()
 x_vec = as_backend_type(wh.vector()).vec()
 
-outf = File('foo.pvd')
- 
+active_facets = np.array([e.index() for e in SubsetIterator(emi_pieces['surfaces'], 1)]) 
+dlt_w = DltWriter(path='test_DLT', u=p_emi, active_facets=active_facets)
+
 step_count = 0
-for ((t0, t1), ode_solution) in ode_solutions:
-    step_count += 1
+with dlt_w as v_file:
 
-    if step_count == fem_ode_sync:
-        step_count = 0
-        # L is wired up with ode so that is updated. Optionally update
-        # values of boundary conditions
+    for ((t0, t1), ode_solution) in ode_solutions:
+        step_count += 1
 
-        # The new rhs
-        emi_assembler.assemble(b)
+        if step_count == fem_ode_sync:
+            step_count = 0
+            # L is wired up with ode so that is updated. Optionally update
+            # values of boundary conditions
+
+            # The new rhs
+            emi_assembler.assemble(b)
       
-        # New (sigma, u, p) ...
-        info('\tSolving linear system of size %d' % A.size(0))
+            # New (sigma, u, p) ...
+            info('\tSolving linear system of size %d' % A.size(0))
         
-        ksp.solve(b_vec, x_vec)
+            ksp.solve(b_vec, x_vec)
 
-        # Update emi potential to standalone DLT function. To emi from wh(2)
-        to_P0_from_EMI.assign(p_emi, wh.sub(2))
+            # Update emi potential to standalone DLT function. To emi from wh(2)
+            to_P0_from_EMI.assign(p_emi, wh.sub(2))
+            v_file.write(float(t1))
+            # IO
+            probe_values = probes.sample(p_emi)
+            print('|v|', p_emi.vector().norm('l2'), p_emi.vector().norm('linf'), np.linalg.norm(probe_values))
+            if pyMPI.COMM_WORLD.rank == 0:
+                table = np.c_[table, np.r_[float(t1), probe_values[:, 0]]]
 
-        outf << (p_emi, t1)
+            # Map DLT function to standalone P1 function (potential for ODE)
+            P0_to_P1.mult(p_emi.vector(), p_ode.vector())
+            as_backend_type(p_ode.vector()).update_ghost_values()
+            # Finally assign that to first component of ODE solution; there
+            # other components are states. To (0) from ...
+            to_ODE_from_P1.assign(ode_solution.sub(0), p_ode)
 
-        # IO
-        probe_values = probes.sample(p_emi)
-        print('|v|', p_emi.vector().norm('l2'), p_emi.vector().norm('linf'), np.linalg.norm(probe_values))
-        if pyMPI.COMM_WORLD.rank == 0:
-            table = np.c_[table, np.r_[float(t1), probe_values[:, 0]]]
-
-        # Map DLT function to standalone P1 function (potential for ODE)
-        P0_to_P1.mult(p_emi.vector(), p_ode.vector())
-        as_backend_type(p_ode.vector()).update_ghost_values()
-        # Finally assign that to first component of ODE solution; there
-        # other components are states. To (0) from ...
-        to_ODE_from_P1.assign(ode_solution.sub(0), p_ode)
-
-        # Check
-        print(np.any(np.isnan(wh.vector().get_local())), np.any(np.isinf(wh.vector().get_local())))
-
+            # Check
+            print(np.any(np.isnan(wh.vector().get_local())), np.any(np.isinf(wh.vector().get_local())))
 
 # PETS.Vec s for solver
 # Final dump
