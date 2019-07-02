@@ -26,7 +26,7 @@ def facet_to_DLTdofs(V, facets):
     '''Facet -> degree of freedom of DLT space'''
     assert V.ufl_element().family() == 'HDiv Trace', V.ufl_element().family()
     assert V.ufl_element().degree() == 0
-    assert V.dolfin_element().value_rank() == 0
+    assert V.ufl_element().value_shape() == ()
 
     dm = V.dofmap()
 
@@ -41,7 +41,7 @@ def facet_to_DLTdofs(V, facets):
     for lid, fid in enumerate(facets):
         # Get dof as the one at which the cells agree
         cs = f2c(fid)
-        dofs = map(dm.cell_dofs, cs)
+        dofs = list(map(dm.cell_dofs, cs))
         # A boundary facet
         if len(cs) == 1:
             c0, = cs
@@ -143,9 +143,12 @@ class DltWriter(object):
                                   connectivity,
                                   offsets,
                                   cell_types,
-                                  cellData=cell_data))
+                                  cellData=cell_data),
+            #
+            "%s_p%d_%06d.vtu" % (path, rank, counter)
+        )[-1]
 
-        comm = mesh.mpi_comm().tompi4py()
+        comm = mesh.mpi_comm()
         # Only other piece to remember is for parallel writeing on root
         self.counter = 0  # Of times write_vtu_piece was called
         self.path = path
@@ -155,6 +158,9 @@ class DltWriter(object):
 
         self.world_rank == 0 and setattr(self, 'group', VtkGroup(path))
 
+    def __enter__(self):
+        return self
+    
     def write(self, t):
         '''Write a new piece'''
         # Each process writes the vtu file
@@ -178,7 +184,7 @@ class DltWriter(object):
         # Update group file
         self.world_rank == 0 and self.group.addFile(filepath=group_path, sim_time=t)
             
-    def close(self):
+    def __exit__(self, exc_type, exc_value, exc_traceback):
         '''Complete the pvd file'''
         self.world_rank == 0 and self.group.save()
                                      
@@ -201,35 +207,29 @@ if __name__ == '__main__':
     
     active_facets = np.array([f.index() for f in SubsetIterator(facet_f, 1)])
     
-    dlt_w = DltWriter(path='test_dlt', u=g, active_facets=active_facets)
-    dlt_w.write(0)
-    dlt_w.close()
-    #VtkData('example3')
+    dlt_w = DltWriter(path='test_DLT', u=g, active_facets=active_facets)
+    with dlt_w as f:
+        f.write(0)
 
-    # Pvtu
-#     if comm.rank == 0:
-#         sources = '\n'.join([
-#             '<Piece Source="test_p%d.vtk" />' % i for i in range(world_size)
-#         ])
-        
-#         with open('test.pvtu', 'w') as out:
-#             out.write('''
-# <?xml version="1.0"?>
-# <VTKFile type="PUnstructuredGrid" version="0.1">
-#   <PUnstructuredGrid GhostLevel="0">
-#     <PPoints>
-#       <PDataArray type="Float64" NumberOfComponents="3" />
-#     </PPoints>
-#     <PCellData>
-#       <PDataArray type="UInt32" Name="connectivity" />
-#       <PDataArray type="UInt32" Name="offsets" />
-#       <PDataArray type="UInt8" Name="types" />
-#     </PCellData>
-#     <PCellData Scalars="f">
-#       <PDataArray type="Float64" Name="f" NumberOfComponents="0" />
-#     </PCellData>
-#     %s
-#   </PUnstructuredGrid>
-# </VTKFile>
-# ''' % sources)
+        g.assign(interpolate(Constant(2), V))
+        f.write(0.1)
 
+    mesh_file = 'tile_1_hein_GMSH307_20_4.h5'
+    
+    # Test with mesh for EMI
+    comm = MPI.comm_world
+    h5 = HDF5File(comm, mesh_file, 'r')
+    mesh = Mesh()
+    h5.read(mesh, 'mesh', False)  
+
+    surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
+    h5.read(surfaces, 'surfaces')
+
+    V = FunctionSpace(mesh, 'Discontinuous Lagrange Trace', 0)
+    g = interpolate(Expression('x[0]+x[1]', degree=1), V)
+
+    active_facets = np.array([f.index() for f in SubsetIterator(surfaces, 1)])
+    print(V.dim(), comm.allreduce(len(active_facets)))
+    dlt_w = DltWriter(path='test_DLT', u=g, active_facets=active_facets)
+    with dlt_w as f:
+        f.write(0)
