@@ -135,6 +135,7 @@ class ApproxPointProbe(object):
         mesh = V.mesh()
         dofs_x = V.tabulate_dof_coordinates().reshape((-1, mesh.geometry().dim()))
 
+        # The idea is to get dofs closest to the candidate points
         nearest, distances = np.zeros(len(locations), dtype=int), np.zeros(len(locations))
         for i, y in enumerate(locations):
             dist = np.linalg.norm(dofs_x - y, 2, axis=1)
@@ -142,45 +143,40 @@ class ApproxPointProbe(object):
 
             nearest[i] = nearest_dof_id
             distances[i] = dist[nearest_dof_id]
-       
+
+        # We plan to ask each local vector for those values
         comm = mesh.mpi_comm()
-        # Now decide which is closest globally; that cpu should do the
-        # sampling then
         point_ranks = np.zeros_like(nearest)
         for i, d in enumerate(distances):
             point_ranks[i] = np.argmin(comm.allgather(d))
-        # Now if I am the closest I get to insert the global dof for lookup
-        nearest += V.dofmap().ownership_range()[0]
-
-        maybe_global_dof = []
-        for dof, rank in zip(nearest, point_ranks):
-            if rank == comm.rank:
-                maybe_global_dof.append(dof)
-            else:
-                maybe_global_dof.append(0)
-        maybe_global_dof = np.array(maybe_global_dof)
-        # Now exchange
-        global_dof = np.zeros_like(maybe_global_dof)
-        comm.Allreduce(maybe_global_dof, global_dof, op=pyMPI.SUM)
-
-        evals = [lambda u, dof=dof: u.getValues([dof])
-                 for dof in global_dof]
+            
+        # But when putting things together we should only use values from
+        # those dofs that were closest
+        mask = point_ranks == comm.rank 
+        
+        values = np.zeros(len(nearest), dtype=float)
+        # So we ask: values <-- nearest from local, and filter: zero-ing
+        # those that were far
+        evals = lambda u, dof=nearest, values=values: (np.copyto(values, u.array_r[nearest]),
+                                                       np.copyto(values, values*mask))
 
         self.probes = evals
-        # To get the correct sampling on all cpus we reduce the local samples across
-        # cpus
+
         self.comm = pyMPI.COMM_WORLD
-        self.readings = np.zeros_like(distances)
+        self.values = values
+        self.readings = np.zeros_like(self.values)
         # Return the value in the shape of vector/matrix
         self.nprobes = len(locations)
 
     def sample(self, u):
         '''Evaluate the probes listing the time as t'''
         u_vec = as_backend_type(u.vector())
-        u_vec.update_ghost_values()
         u_vec = u_vec.vec()  # This is PETSc
-        self.reading[:] = np.hstack([f(u_vec) for f in self.probes])
- 
+        
+        self.probes(u_vec)
+        # Summing Zero and the Right value
+        self.comm.Reduce(self.values, self.readings, op=pyMPI.SUM)  # Sync
+
         return self.readings.reshape((self.nprobes, -1))
 
 # --------------------------------------------------------------------
@@ -188,6 +184,10 @@ class ApproxPointProbe(object):
 if __name__ == '__main__':
     from dolfin import *
 
+    
+    parameters['ghost_mode'] = 'shared_facet'
+
+    
     mesh_file = 'tile_1_hein_GMSH307_10_1.h5'
     # Get mesh to setup the ode solver
     comm = MPI.comm_world  # FIXME!
@@ -196,27 +196,29 @@ if __name__ == '__main__':
     h5.read(mesh, 'mesh', False)
     
     # Sample a tidge
-    points = [probe_cell_at(m=m, n=0, level=2, point=p)
-              for m in range(10) for p in (-1, 1)]
+    pts = np.array([probe_cell_at(m=m, n=0, level=2, point=p)
+                    for m in range(2) for p in (-1, 1)])
 
     V = FunctionSpace(mesh, 'CG', 1)
     d = Function(V)
 
-    pts = V.tabulate_dof_coordinates()[[0, 2, 3]]
     f = Expression('t*(x[0] + 2*x[1])', degree=1, t=1)
 
     v = interpolate(f, V)
 
     probes = ApproxPointProbe(v, pts)
+
+    stop = 1
     
     table = pts
     gdim = table.shape[1]
-    for i in range(10):
+    for i in range(stop):
         f.t += i*0.1
         v.assign(interpolate(f, V))
         
         probe_values = probes.sample(v)
         if probes.comm.rank == 0:
+            print(probe_values.flatten())
             table = np.c_[table, probe_values.flatten()]
 
     if probes.comm.rank == 0:
@@ -224,8 +226,8 @@ if __name__ == '__main__':
 
         t = 1
         error = 0
-        for i in range(10):
+        for i in range(stop):
             t += i*0.1
             v = t*(x + 2*y)
             error = max(error, np.linalg.norm(v - table[:, gdim+i]))
-        print(error)
+        print('>>>', error)

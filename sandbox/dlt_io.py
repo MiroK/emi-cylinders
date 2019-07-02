@@ -1,6 +1,6 @@
 from evtk.hl import unstructuredGridToVTK
 from evtk.vtk import VtkTriangle, VtkGroup
-
+import numpy as np
 
 pvtu_code = '''<?xml version="1.0"?>
 <VTKFile type="PUnstructuredGrid" version="0.1">
@@ -214,7 +214,7 @@ if __name__ == '__main__':
         g.assign(interpolate(Constant(2), V))
         f.write(0.1)
 
-    mesh_file = 'tile_1_hein_GMSH307_20_4.h5'
+    mesh_file = 'tile_1_hein_GMSH307_10_1.h5'
     
     # Test with mesh for EMI
     comm = MPI.comm_world
