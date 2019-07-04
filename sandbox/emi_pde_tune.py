@@ -63,9 +63,9 @@ def pde_components(mesh, h5, emi_parameters):
                           CompiledSubDomain('near(x[%d], %.16f)' % (i, xi_max))])
 
     bdry_tags = range(2, 2+len(bdry_foos))
-    # Carefully introduce new surfaces
+    # Introduce new surfaces
     for tag, bdry in zip(bdry_tags, bdry_foos):
-        tag_if_not(tag, bdry, surfaces, 0)
+        bdry.mark(surfaces, tag)
 
     # W.sub(0) bcs set strongly correspond to insulation. Skipping (tau.n)*u on
     # bdry means potential there is weakly zero, grounding.
@@ -89,6 +89,7 @@ def pde_components(mesh, h5, emi_parameters):
     I_ion =emi_parameters['I_ion']
 
     # The system
+    # NOTE: the only dS where we have cells is iface_tag
     a = ((1/cond_int)*inner(sigma, tau)*dx(int_tag)+(1/cond_ext)*inner(sigma, tau)*dx(ext_tag)
          - inner(div(tau), u)*dx(int_tag) - inner(div(tau), u)*dx(ext_tag)
          + inner(p('+'), dot(tau('+'), n('-')))*dS(iface_tag)
@@ -98,31 +99,21 @@ def pde_components(mesh, h5, emi_parameters):
 
     L = inner(q('+'), I_ion('+')-(C_m/dt)*p0('+'))*dS(iface_tag)
 
-    # NOTE: in general the cell interfaces might end up on the surface boundary
-    a += (inner(p, dot(tau, n))*ds(iface_tag)
-          + inner(q, dot(sigma, n))*ds(iface_tag)
-          - (C_m/dt)*inner(q, p)*ds(iface_tag))
-
-    L += inner(q, I_ion-(C_m/dt)*p0)*ds(iface_tag)
-
-    # Additional terms to set to zero the dofs of W.sub(2) which are not on
-    # the interfaces
-    a -= inner(p('+'), q('+'))*dS(not_iface_tag) + inner(p, q)*ds(not_iface_tag)
-    L -= inner(Constant(0)('+'), q('+'))*dS(not_iface_tag) + inner(Constant(0), q)*ds(not_iface_tag)
-
     bcs = []
     # Insulate all the boundaries; by leaving out 7 we are making it grounded
     bcs = [DirichletBC(W.sub(0), Constant((0, 0, 0)), surfaces, tag) for tag in bdry_tags[:-1]]
 
-    # Constrain LM on these facets
+    # Constrain LM on facets other than interface
+    a -= inner(p('+'), q('+'))*dS(not_iface_tag) + inner(p, q)*ds(not_iface_tag)
+    L -= inner(Constant(0)('+'), q('+'))*dS(not_iface_tag) + inner(Constant(0), q)*ds(not_iface_tag)
+    # And the new surface guys
     for tag in bdry_tags:
         a -= inner(p('+'), q('+'))*dS(tag) + inner(p, q)*ds(tag)
         L -= inner(Constant(0)('+'), q('+'))*dS(tag) + inner(Constant(0), q)*ds(tag)
-
+    # If it empty, just bunch of extra zeros
+        
     # And finaly a function that will update p0 like guys
     toODE = emi_to_ode_operator(surfaces, (1, ))
-
-    File('bcs_surfaces.pvd') << surfaces
 
     return {'a': a, 'L': L, 'W': W, 'bcs': bcs, 'toODE': toODE, 'surfaces': surfaces}
 
@@ -130,7 +121,7 @@ def pde_components(mesh, h5, emi_parameters):
 
 if __name__ == '__main__':
     
-    mesh_file = './tile_1_hein_GMSH307_10_1.h5'
+    mesh_file = './tile_1_hein_GMSH307_1_1.h5'
 
     comm = MPI.comm_world
     h5 = HDF5File(comm, mesh_file, 'r')
@@ -146,8 +137,8 @@ if __name__ == '__main__':
 
     comps = pde_components(mesh, h5, emi_parameters)
 
-    # A, _ = assemble_system(comps['a'], comps['L'], comps['bcs'])
+    A, _ = assemble_system(comps['a'], comps['L'], comps['bcs'])
+    print(A.size(0))
+    import numpy as np
 
-    # import numpy as np
-
-    # e = np.sort(np.abs(np.linalg.eigvals(A.array())))
+    e = np.sort(np.abs(np.linalg.eigvals(A.array())))
