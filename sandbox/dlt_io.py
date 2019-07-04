@@ -1,6 +1,7 @@
 from evtk.hl import unstructuredGridToVTK
 from evtk.vtk import VtkTriangle, VtkGroup
 import numpy as np
+import os
 
 
 pvtu_code = '''<?xml version="1.0"?>
@@ -125,7 +126,13 @@ class DltWriter(object):
         vertices, cells = triangulation(mesh, facets=active_facets)
 
         comm = mesh.mpi_comm()
+
+        dirname, basaname = os.path.dirname(path), os.path.basename(path)
+        if dirname:
+            not os.path.exists(dirname) and comm.rank == 0 and os.mkdir(dirname)
+        
         local_has_piece = np.zeros(comm.size, dtype=bool)
+        # NOTE: vtu files go into the directory
         # It is not given that every process has some cells
         # The it won't do much
         if len(vertices) == 0 or len(cells) == 0:
@@ -171,6 +178,7 @@ class DltWriter(object):
         self.world_size = comm.size
         self.u_name = u.name()
 
+        # Also group file goes into the directory
         self.world_rank == 0 and setattr(self, 'group', VtkGroup(path))
 
     def __enter__(self):
@@ -178,10 +186,12 @@ class DltWriter(object):
     
     def write(self, t):
         '''Write a new piece'''
-        # Each process writes the vtu file
+        # Each process writes the vtu file - goes possibly to directory
         group_path = self.write_vtu_piece(self.path, self.world_rank, self.counter)
 
         # Root write one pvtu file
+        # A pvtu file goes into the directory but but the pieces should use
+        # only baname to point to vtu file
         if self.world_size > 1:
             group_path = '%s%06d.pvtu' % (self.path, self.counter)
 
@@ -189,14 +199,15 @@ class DltWriter(object):
                 with open(group_path, 'w') as group_file:
                     group_file.write(pvtu_code %
                         {'f': self.u_name,
-                         'pieces': '\n'.join(['<Piece Source="%s_p%d_%06d.vtu" />' % (self.path, rank, self.counter)
-                                              for rank in self.has_piece])
+                         'pieces': '\n'.join(
+                             ['<Piece Source="%s_p%d_%06d.vtu" />' % (os.path.basename(self.path), rank, self.counter)
+                              for rank in self.has_piece])
                         }
                     )
 
         self.counter += 1  # Of times write_vtu_piece was called
                                      
-        # Update group file
+        # Update group file; refer to group item as
         self.world_rank == 0 and self.group.addFile(filepath=group_path, sim_time=t)
             
     def __exit__(self, exc_type, exc_value, exc_traceback):
@@ -250,6 +261,6 @@ if __name__ == '__main__':
 
     active_facets = np.array([f.index() for f in SubsetIterator(surfaces, 1)])
 
-    dlt_w = DltWriter(path='test_DLT', u=g, active_facets=active_facets)
+    dlt_w = DltWriter(path='./check/test_DLT', u=g, active_facets=active_facets)
     with dlt_w as f:
         f.write(0)
