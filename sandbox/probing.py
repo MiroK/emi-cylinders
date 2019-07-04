@@ -34,8 +34,8 @@ def probe_cell_at(m, n, level, point):
          2: 11.5,
          -2: -11.5}[level]
 
-    (x, y) = {0: {1: (98, 8), 2: (100, 8), 3: (100, 15), 4: (98, 15),
-                  -1: (2, 8), -2: (0, 8), -3: (2, 15), -4: (0, 15)},
+    (x, y) = {0: {1: (98., 8), 2: (100., 8), 3: (100., 15), 4: (98., 15),
+                  -1: (2., 8), -2: (0., 8), -3: (2., 15), -4: (0., 15)},
               #
               1: {1: (98, 11.5), -1: (2, 11.5), 2: (100, 11.5), -2: (0, 11.5)},
               -1: {1: (98, 11.5), -1: (2, 11.5), 2: (100, 11.5), -2: (0, 11.5)},
@@ -46,7 +46,7 @@ def probe_cell_at(m, n, level, point):
 
     point = np.array([x, y, z])
     # Shift
-    point += np.array([m*100, n*23, 0])
+    point += np.array([m*100, n*23, 0.])
     # In mm
     point *= 1E-3
 
@@ -143,17 +143,17 @@ class ApproxPointProbe(object):
 
             nearest[i] = nearest_dof_id
             distances[i] = dist[nearest_dof_id]
-
         # We plan to ask each local vector for those values
         comm = mesh.mpi_comm()
         point_ranks = np.zeros_like(nearest)
         for i, d in enumerate(distances):
             point_ranks[i] = np.argmin(comm.allgather(d))
             
+        print(comm.rank, nearest, distances)
         # But when putting things together we should only use values from
         # those dofs that were closest
         mask = point_ranks == comm.rank 
-        
+        self.nearest = nearest
         values = np.zeros(len(nearest), dtype=float)
         # So we ask: values <-- nearest from local, and filter: zero-ing
         # those that were far
@@ -174,6 +174,7 @@ class ApproxPointProbe(object):
         u_vec = u_vec.vec()  # This is PETSc
         
         self.probes(u_vec)
+        print('>>>>', self.values, u_vec.norm(2), u_vec.array_r[self.nearest], np.min(np.abs(u_vec.array_r)))
         # Summing Zero and the Right value
         self.comm.Reduce(self.values, self.readings, op=pyMPI.SUM)  # Sync
 

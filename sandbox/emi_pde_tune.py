@@ -122,14 +122,15 @@ def pde_components(mesh, h5, emi_parameters):
     # And finaly a function that will update p0 like guys
     toODE = emi_to_ode_operator(surfaces, (1, ))
 
-    return {'a': a, 'L': L, 'W': W, 'bcs': bcs, 'toODE': toODE}
+    File('bcs_surfaces.pvd') << surfaces
+
+    return {'a': a, 'L': L, 'W': W, 'bcs': bcs, 'toODE': toODE, 'surfaces': surfaces}
 
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
-    from slepc4py import SLEPc
     
-    mesh_file = '../gmsh_cad/tile_1_narrow.h5'
+    mesh_file = './tile_1_hein_GMSH307_10_1.h5'
 
     comm = MPI.comm_world
     h5 = HDF5File(comm, mesh_file, 'r')
@@ -145,8 +146,8 @@ if __name__ == '__main__':
 
     comps = pde_components(mesh, h5, emi_parameters)
 
-    A, _ = assemble_system(comps['a'], comps['L'], comps['bcs'])
+    # A, _ = assemble_system(comps['a'], comps['L'], comps['bcs'])
 
-    import numpy as np
+    # import numpy as np
 
     # e = np.sort(np.abs(np.linalg.eigvals(A.array())))

@@ -15,7 +15,7 @@ import numpy as np
 import os
 
 # Setup 
-mesh_file = './tile_1_hein_GMSH307_1_1.h5'
+mesh_file = './tile_1_hein_GMSH307_10_1.h5'
 # Get mesh to setup the ode solver
 comm = MPI.comm_world  # FIXME!
 h5 = HDF5File(comm, mesh_file, 'r')
@@ -24,15 +24,17 @@ h5.read(mesh, 'mesh', False)
 
 # Mesh box dimensions in mm. So mesh is expected to be nn as well.
 # NOTE: update by hand - waste of resouces to do it with mpi
-ncells_x, ncells_y = map(int, os.path.splitext(mesh_file)[0].split('_')[-2:])
-Length = 0.1*ncells_x    # In x as multiples of single cell
-Width = 0.025*ncells_y   # In y
-Height = 0.025
+# ncells_x, ncells_y = map(int, os.path.splitext(mesh_file)[0].split('_')[-2:])
+# print(ncells_x, ncells_y)
+
+# Length = 0.1*ncells_x    # In x as multiples of single cell
+# Width = 0.025*ncells_y   # In y
+# Height = 0.025
 
 # Here are some sample points for transmembrane potential: On top surface
 # of the cylinder
-probe_points = np.array([probe_cell_at(m, n=n, level=2, point=p)
-                         for n in range(ncells_y) for m in range(ncells_x) for p in (-1, 1)])
+# probe_points = np.array([probe_cell_at(m, n=n, level=0, point=p)
+#                          for n in range(ncells_y) for m in range(ncells_x) for p in (1, 2, 3, 4, -1, -2, -3, -4)])
 
 # ODE setup
 C_m = 0.01 #microF*mm**-2
@@ -44,7 +46,7 @@ cell_params['amp'] = 0.0
 cell_model = Parsimonious(params=cell_params)
 
 # Define a stimulus current
-stim = Expression("t > 0.0 && t < 0.5 && x[0] < 0.2 ? 200:0", t=0., length=Length, degree=1)
+stim = Expression("t > 0.0 && t < 0.5 && x[0] < 0.2 ? 200:0", t=0., degree=1)
 
 ode_parameters = {'dt': 1E-2,
                   'stimulus': stim}
@@ -214,21 +216,21 @@ to_ODE_from_P1 = FunctionAssigner(ode_solver.VS.sub(0), P1)
 #solver.parameters['reuse_factorization'] = True
 
 # Sample transmembrane potential
-probes = ApproxPointProbe(p_emi, probe_points)
+# probes = ApproxPointProbe(p_emi, probe_points)
 # Initial reading
-probe_values = probes.sample(p_emi)
+# probe_values = probes.sample(p_emi)
 
 # The idea is to have rows of t and potentials readings
-if pyMPI.COMM_WORLD.rank == 0:
-    table = np.vstack([np.array([np.inf, np.inf, np.inf]), probe_points])
-    table = np.c_[table, np.r_[np.r_[interval[0], probe_values[:, 0]]]]
+# if pyMPI.COMM_WORLD.rank == 0:
+#     table = np.vstack([np.array([np.inf, np.inf, np.inf]), probe_points])
+#     table = np.c_[table, np.r_[np.r_[interval[0], probe_values[:, 0]]]]
 
 # PETS.Vec s for solver
 b_vec = b.vec()
 x_vec = as_backend_type(wh.vector()).vec()
 
 active_facets = np.array([e.index() for e in SubsetIterator(emi_pieces['surfaces'], 1)]) 
-dlt_w = DltWriter(path='test_DLT', u=p_emi, active_facets=active_facets)
+dlt_w = DltWriter(path='transmembrane_potential', u=p_emi, active_facets=active_facets)
 
 step_count = 0
 with dlt_w as v_file:
@@ -253,10 +255,10 @@ with dlt_w as v_file:
             to_P0_from_EMI.assign(p_emi, wh.sub(2))
             v_file.write(float(t1))
             # IO
-            probe_values = probes.sample(p_emi)
-            print('|v|', p_emi.vector().norm('l2'), p_emi.vector().norm('linf'), np.linalg.norm(probe_values))
-            if pyMPI.COMM_WORLD.rank == 0:
-                table = np.c_[table, np.r_[float(t1), probe_values[:, 0]]]
+            # probe_values = probes.sample(p_emi)
+            # print('|v|', p_emi.vector().norm('l2'), p_emi.vector().norm('linf'), np.linalg.norm(probe_values))
+            # if pyMPI.COMM_WORLD.rank == 0:
+            #     table = np.c_[table, np.r_[float(t1), probe_values[:, 0]]]
 
             # Map DLT function to standalone P1 function (potential for ODE)
             P0_to_P1.mult(p_emi.vector(), p_ode.vector())
@@ -270,8 +272,8 @@ with dlt_w as v_file:
 
 # PETS.Vec s for solver
 # Final dump
-if pyMPI.COMM_WORLD.rank == 0:
-    np.savetxt('probe_readings.txt', table,
-               header='First row is time, remaining are probe readings of potentials')
+# if pyMPI.COMM_WORLD.rank == 0:
+#     np.savetxt('probe_readings.txt', table,
+#                header='First row is time, remaining are probe readings of potentials')
 
 del pc, ksp
