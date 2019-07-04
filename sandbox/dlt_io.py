@@ -2,6 +2,7 @@ from evtk.hl import unstructuredGridToVTK
 from evtk.vtk import VtkTriangle, VtkGroup
 import numpy as np
 
+
 pvtu_code = '''<?xml version="1.0"?>
 <VTKFile type="PUnstructuredGrid" version="0.1">
 <PUnstructuredGrid GhostLevel="0">
@@ -119,38 +120,50 @@ class DltWriter(object):
         values = np.zeros(len(mapping), dtype=float)
         cell_data = {u.name(): values}  # We will update these
 
-        
         active_facets = active_facets[mask]        
         # Let's compute things for the grid
         vertices, cells = triangulation(mesh, facets=active_facets)
 
-        x, y, z = map(np.array, mesh.coordinates()[vertices].T)
-        ncells, nvertices_cell = cells.shape
-        assert nvertices_cell == 3  # FIXME: only triangles
-        
-        connectivity = cells.flatten()
-        offsets = np.arange(nvertices_cell,
-                            len(connectivity) + nvertices_cell,
-                            nvertices_cell)
-
-        cell_types = VtkTriangle.tid*np.ones(ncells)
-        # The grid is made of x, y, z, connectivity, offsets, cell_types
-        # And cell_data dictionary: alloc
-
-        self.write_vtu_piece = lambda path, rank, counter: (
-            np.copyto(values, u.vector().get_local()[mapping]),
-            #
-            unstructuredGridToVTK("%s_p%d_%06d" % (path, rank, counter),
-                                  x, y, z,
-                                  connectivity,
-                                  offsets,
-                                  cell_types,
-                                  cellData=cell_data),
-            #
-            "%s_p%d_%06d.vtu" % (path, rank, counter)
-        )[-1]
-
         comm = mesh.mpi_comm()
+        local_has_piece = np.zeros(comm.size, dtype=bool)
+        # It is not given that every process has some cells
+        # The it won't do much
+        if len(vertices) == 0 or len(cells) == 0:
+            self.write_vtu_piece = lambda path, rank, counter: (
+                "%s_p%d_%06d.vtu" % (path, rank, counter)
+            )
+        else:
+            local_has_piece[comm.rank] = True
+            
+            x, y, z = map(np.array, mesh.coordinates()[vertices].T)
+            ncells, nvertices_cell = cells.shape
+            assert nvertices_cell == 3  # FIXME: only triangles
+        
+            connectivity = cells.flatten()
+            offsets = np.arange(nvertices_cell,
+                                len(connectivity) + nvertices_cell,
+                                nvertices_cell)
+
+            cell_types = VtkTriangle.tid*np.ones(ncells)
+            # The grid is made of x, y, z, connectivity, offsets, cell_types
+            # And cell_data dictionary: alloc
+
+            self.write_vtu_piece = lambda path, rank, counter: (
+                np.copyto(values, u.vector().get_local()[mapping]),
+                #
+                unstructuredGridToVTK("%s_p%d_%06d" % (path, rank, counter),
+                                      x, y, z,
+                                      connectivity,
+                                      offsets,
+                                      cell_types,
+                                      cellData=cell_data),
+                #
+                "%s_p%d_%06d.vtu" % (path, rank, counter)
+            )[-1]
+        # Root will write the group file
+        global_has_piece = sum(comm.allgather(local_has_piece),
+                               np.zeros_like(local_has_piece))
+        self.has_piece,  = np.where(global_has_piece)
         # Only other piece to remember is for parallel writeing on root
         self.counter = 0  # Of times write_vtu_piece was called
         self.path = path
@@ -177,9 +190,9 @@ class DltWriter(object):
                     group_file.write(pvtu_code %
                         {'f': self.u_name,
                          'pieces': '\n'.join(['<Piece Source="%s_p%d_%06d.vtu" />' % (self.path, rank, self.counter)
-                                              for rank in range(self.world_size)])
-}
-)
+                                              for rank in self.has_piece])
+                        }
+                    )
 
         self.counter += 1  # Of times write_vtu_piece was called
                                      
@@ -192,46 +205,51 @@ class DltWriter(object):
                                      
 # --------------------------------------------------------------------
 
-
 if __name__ == '__main__':
     from dolfin import *
     import numpy as np
     
-    mesh = UnitCubeMesh(16, 16, 16)
-    gdim = mesh.geometry().dim()
-    fdim = mesh.topology().dim() - 1
+    # mesh = UnitCubeMesh(16, 16, 16)
+    # gdim = mesh.geometry().dim()
+    # fdim = mesh.topology().dim() - 1
         
-    V = FunctionSpace(mesh, 'Discontinuous Lagrange Trace', 0)
-    g = interpolate(Expression('x[0]+x[1]', degree=1), V)
+    # V = FunctionSpace(mesh, 'Discontinuous Lagrange Trace', 0)
+    # g = interpolate(Expression('x[0]+x[1]', degree=1), V)
 
-    facet_f = MeshFunction('size_t', mesh, fdim, 0)
-    CompiledSubDomain('near(x[0]*(1-x[0]), 0) || near(x[1]*(1-x[1]), 0) || near(x[0], x[1])').mark(facet_f, 1)
+    # facet_f = MeshFunction('size_t', mesh, fdim, 0)
+    # CompiledSubDomain('near(x[0]*(1-x[0]), 0) || near(x[1]*(1-x[1]), 0) || near(x[0], x[1])').mark(facet_f, 1)
     
-    active_facets = np.array([f.index() for f in SubsetIterator(facet_f, 1)])
+    # active_facets = np.array([f.index() for f in SubsetIterator(facet_f, 1)])
     
-    dlt_w = DltWriter(path='test_DLT', u=g, active_facets=active_facets)
-    with dlt_w as f:
-        f.write(0)
+    # dlt_w = DltWriter(path='test_DLT', u=g, active_facets=active_facets)
+    # with dlt_w as f:
+    #     f.write(0)
 
-        g.assign(interpolate(Constant(2), V))
-        f.write(0.1)
+    #     g.assign(interpolate(Constant(2), V))
+    #     f.write(0.1)
 
-    mesh_file = 'tile_1_hein_GMSH307_10_1.h5'
+    mesh_file = '../../tieler/tiles/tile_1_hein_GMSH307_3_3_noBdry.h5'
     
     # Test with mesh for EMI
     comm = MPI.comm_world
     h5 = HDF5File(comm, mesh_file, 'r')
     mesh = Mesh()
-    h5.read(mesh, 'mesh', False)  
+    h5.read(mesh, 'mesh', False)
+
+    mesh_ranks = MeshFunction('size_t', mesh, mesh.topology().dim(), 0)
+    mesh_ranks.array()[:] = comm.rank
+
+    File('mesh_rankd.pvd') << mesh_ranks
 
     surfaces = MeshFunction('size_t', mesh, mesh.topology().dim()-1, 0)
     h5.read(surfaces, 'surfaces')
-
+    h5.close()
+    
     V = FunctionSpace(mesh, 'Discontinuous Lagrange Trace', 0)
     g = interpolate(Expression('x[0]+x[1]', degree=1), V)
 
     active_facets = np.array([f.index() for f in SubsetIterator(surfaces, 1)])
-    print(V.dim(), comm.allreduce(len(active_facets)))
+
     dlt_w = DltWriter(path='test_DLT', u=g, active_facets=active_facets)
     with dlt_w as f:
         f.write(0)
