@@ -15,7 +15,7 @@ import numpy as np
 import os
 
 # Setup 
-mesh_file = './tile_1_hein_GMSH307_10_1.h5'
+mesh_file = './tile_1_hein_GMSH307_3_3_noBdry.h5'
 # Get mesh to setup the ode solver
 comm = MPI.comm_world  # FIXME!
 h5 = HDF5File(comm, mesh_file, 'r')
@@ -46,8 +46,10 @@ cell_params['amp'] = 0.0
 cell_model = Parsimonious(params=cell_params)
 
 # Define a stimulus current
-stim = Expression("t > 0.0 && t < 0.5 && x[0] < 0.2 ? 200:0", t=0., degree=1)
-
+stim = Expression("t > 0.0 && t < 0.5 && x[0] < length ? 200:0",
+                  length=0.1*(1+5), t=0., degree=1)
+# The mesh is ncell_x * 0.1 long. The first cell is vold
+# so 1+x stimulates first n cells
 ode_parameters = {'dt': 1E-2,
                   'stimulus': stim}
 # ---
@@ -230,7 +232,11 @@ b_vec = b.vec()
 x_vec = as_backend_type(wh.vector()).vec()
 
 active_facets = np.array([e.index() for e in SubsetIterator(emi_pieces['surfaces'], 1)]) 
-dlt_w = DltWriter(path='transmembrane_potential', u=p_emi, active_facets=active_facets)
+
+if pyMPI.COMM_WORLD.rank == 0:
+    not os.path.exists('./results') and os.mkdir('./results')
+
+dlt_w = DltWriter(path='./results/transmembrane_potential', u=p_emi, active_facets=active_facets)
 
 step_count = 0
 with dlt_w as v_file:

@@ -89,7 +89,9 @@ def triangulation(mesh, facets):
         # Collect the cells in local
         cells.append(cell_local)
     cells = np.array(cells)
-                    
+    
+    if not vertex_mapping:
+        return np.array([], dtype='uintp'), cells                    
     # Since keys in vertex_mapping are basically a range
     global_v, local_v = map(np.array, zip(*vertex_mapping.items()))
     # Now local are a range
