@@ -2,6 +2,12 @@ import petsc4py, sys
 petsc4py.init(sys.argv)
 from petsc4py import PETSc
 
+# It is barely impossible to understand what went wrong
+# when using the Dolfin signal handler in PETSc
+PETSc.Sys.pushErrorHandler('python')
+from dolfin import *
+parameters["use_petsc_signal_handler"] = True
+
 from cbcbeat.cellsolver import CardiacODESolver
 
 from parsimonious import Parsimonious
@@ -10,11 +16,11 @@ from probing import ApproxPointProbe, probe_cell_at
 from dlt_io import DltWriter
 
 from mpi4py import MPI as pyMPI
-from dolfin import *
 import numpy as np
 import os
 
-# Setup 
+
+# Setup
 mesh_file = './tile_1_hein_GMSH307_3_3_noBdry.h5'
 # Get mesh to setup the ode solver
 comm = MPI.comm_world  # FIXME!
@@ -82,32 +88,35 @@ a, L, bcs = (emi_pieces[key] for key in ('a', 'L', 'bcs'))
 
 A, b = PETScMatrix(), PETScVector()
 
+opts = PETSc.Options()
+
+petscversion = PETSc.Sys.getVersion()
 # --------------------------------------------------------------------
 # Setup Stefano's solver
 # --------------------------------------------------------------------
-opts = PETSc.Options()
 
 # In the presence of internal facet terms, the local to global maps have ghost cells (through shared facets)
 # However, only one process insert values there -> we need to prune empty local rows/columns
-# from the other processes. This can be done programmatically from PETSc, but it is currently
-# in a development branch
-opts.setValue("-test_matis_fixempty", None)
-
+# from the other processes. This can be done programmatically from PETSc version 3.10.0 on
 Amat = A.mat()
-Amat.setOptionsPrefix("test_")
+Amat.setOptionsPrefix("emi_")
 Amat.setType("is")
+if petscversion < (3,10,0):
+  opts.setValue("-emi_matis_fixempty", None)
+else:
+  Amat.fixISLocalEmpty(True)
 Amat.setFromOptions()
 
 # Assembly
 emi_assembler = SystemAssembler(a, L, bcs)
 emi_assembler.assemble(A)
 
-Amat.viewFromOptions("-my_view")
+#Amat.viewFromOptions("-my_view")
 
 # Create PETSc Krylov solver (from petsc4py)
 ksp = PETSc.KSP()
 ksp.create(PETSc.COMM_WORLD)
-ksp.setOptionsPrefix("test_")
+ksp.setOptionsPrefix("emi_")
 
 # Set the Krylov solver type and set tolerances
 # We can use CG since DRT dofs will never be part of the interface between subdomains
@@ -123,70 +132,91 @@ pc = ksp.getPC()
 pc.setType("bddc")
 
 # Options
-opts.setValue("-test_ksp_view", None)
-opts.setValue("-test_ksp_converged_reason", None)
-opts.setValue("-test_ksp_monitor_singular_value", None)
-opts.setValue("-test_ksp_norm_type", "natural")
+
+opts.setValue("-emi_ksp_norm_type", "natural")
+opts.setValue("-emi_ksp_converged_reason", None)
+#opts.setValue("-emi_ksp_view", None)
+#opts.setValue("-emi_ksp_monitor_singular_value", None)
+#opts.setValue("-emi_ksp_monitor_true_residual", None)
+
+# Compute initial guess with reduced order basis (POD)
+opts.setValue("-emi_ksp_guess_type", "pod")
+opts.setValue("-emi_ksp_guess_pod_size", 10) # number of snapshots
+
+# incremental verbosity for debugging BDDC
+bddcdbg = 0
 
 # Don't turn these off
-opts.setValue("-test_pc_bddc_detect_disconnected", None)
-opts.setValue("-test_pc_bddc_use_faces", None)
-opts.setValue("-test_pc_bddc_benign_trick", None)
-opts.setValue("-test_pc_bddc_nonetflux", None)
-opts.setValue("-test_pc_bddc_schur_exact", None)
-opts.setValue("-test_pc_bddc_use_deluxe_scaling", None)
-opts.setValue("-test_pc_bddc_deluxe_zerorows", None)
-opts.setValue("-test_pc_bddc_use_local_mat_graph", "0")
-opts.setValue("-test_pc_bddc_adaptive_userdefined", None)
+opts.setValue("-emi_pc_bddc_detect_disconnected", None)
+opts.setValue("-emi_pc_bddc_use_faces", None)
+opts.setValue("-emi_pc_bddc_benign_trick", None)
+opts.setValue("-emi_pc_bddc_nonetflux", None)
+opts.setValue("-emi_pc_bddc_schur_exact", None)
+opts.setValue("-emi_pc_bddc_use_deluxe_scaling", None)
+opts.setValue("-emi_pc_bddc_deluxe_zerorows", None)
+opts.setValue("-emi_pc_bddc_use_local_mat_graph", "0")
+opts.setValue("-emi_pc_bddc_adaptive_userdefined", None)
+opts.setValue("-emi_pc_bddc_check_level", bddcdbg)
+
+# Adaptive coarse spaces
+# it is tricky to get the best possible combinations in terms of runtime
+# I suggest you play with these options by command line
+# (and commenting out all the lines containing 'bddclam')
+bddclam = 2.0
+opts.setValue("-emi_pc_bddc_adaptive_threshold", bddclam)
 
 # Better off you have MUMPS or SUITESPARSE for the factorizations
 
 # Sometimes MUMPS fails with error -9 (increase Schur workspace....this is annoying)
-opts.setValue("-test_sub_schurs_mat_mumps_icntl_14",500)
+opts.setValue("-emi_sub_schurs_mat_mumps_icntl_14",500)
 opts.setValue("-mat_mumps_icntl_14",500)
 
 # Local solvers (MUMPS)
-opts.setValue("-test_pc_bddc_dirichlet_pc_type","cholesky") # This is actually LDL^T
-opts.setValue("-test_pc_bddc_neumann_pc_type","cholesky") # This is actually LDL^T
-opts.setValue("-test_pc_bddc_dirichlet_pc_factor_mat_solver_type","mumps")
-opts.setValue("-test_pc_bddc_neumann_pc_factor_mat_solver_type","mumps")
+opts.setValue("-emi_pc_bddc_dirichlet_pc_type","cholesky") # This is actually LDL^T
+opts.setValue("-emi_pc_bddc_neumann_pc_type","cholesky") # This is actually LDL^T
+opts.setValue("-emi_pc_bddc_dirichlet_pc_factor_mat_solver_type","mumps")
+opts.setValue("-emi_pc_bddc_neumann_pc_factor_mat_solver_type","mumps")
 
-nlevels = 1
 # Coarse solver (MUMPS or BDDC)
-opts.setValue("-test_pc_bddc_coarse_pc_factor_mat_solver_type","mumps")
+nlevels = 1
+opts.setValue("-emi_pc_bddc_coarse_pc_factor_mat_solver_type","mumps")
 if nlevels < 1:
-    opts.setValue("-test_pc_bddc_coarse_pc_type","cholesky") # This is actually LDL^T
+    opts.setValue("-emi_pc_bddc_coarse_pc_type","cholesky") # This is actually LDL^T
 
-opts.setValue("-test_pc_bddc_levels",nlevels)
-opts.setValue("-test_pc_bddc_coarse_sub_schurs_mat_mumps_icntl_14",500)
-opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_deluxe_scaling",None)
-opts.setValue("-test_pc_bddc_coarse_pc_bddc_deluxe_zerorows",None)
-opts.setValue("-test_pc_bddc_coarse_pc_bddc_schur_exact",None)
-opts.setValue("-test_pc_bddc_coarse_pc_bddc_use_local_mat_graph",None)
-opts.setValue("-test_pc_bddc_coarse_check_ksp_monitor",None)
-opts.setValue("-test_pc_bddc_coarse_check_ksp_converged_reason",None)
-opts.setValue("-test_pc_bddc_coarse_check_ksp_type","cg")
-opts.setValue("-test_pc_bddc_coarse_check_ksp_norm_type","natural")
+opts.setValue("-emi_pc_bddc_levels",nlevels)
+opts.setValue("-emi_pc_bddc_coarse_sub_schurs_mat_mumps_icntl_14",500)
+opts.setValue("-emi_pc_bddc_coarse_pc_bddc_adaptive_threshold", bddclam)
+opts.setValue("-emi_pc_bddc_coarse_pc_bddc_use_deluxe_scaling",None)
+opts.setValue("-emi_pc_bddc_coarse_pc_bddc_deluxe_zerorows",None)
+opts.setValue("-emi_pc_bddc_coarse_pc_bddc_schur_exact",None)
+opts.setValue("-emi_pc_bddc_coarse_pc_bddc_use_local_mat_graph",None)
+opts.setValue("-emi_pc_bddc_coarse_check_ksp_monitor",None)
+opts.setValue("-emi_pc_bddc_coarse_check_ksp_converged_reason",None)
+opts.setValue("-emi_pc_bddc_coarse_check_ksp_type","cg")
+opts.setValue("-emi_pc_bddc_coarse_check_ksp_norm_type","natural")
+opts.setValue("-emi_pc_bddc_coarse_pc_bddc_check_level", bddcdbg)
 
 for j in range(nlevels):
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_sub_schurs_mat_mumps_icntl_14",500)
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_deluxe_scaling",None)
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_deluxe_zerorows",None)
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_schur_exact",None)
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_local_mat_graph",None)
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_ksp_type","chebyshev")
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_monitor",None)
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_converged_reason",None)
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
-    opts.setValue("-test_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_sub_schurs_mat_mumps_icntl_14",500)
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_pc_bddc_adaptive_threshold", bddclam)
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_deluxe_scaling",None)
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_pc_bddc_deluxe_zerorows",None)
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_pc_bddc_schur_exact",None)
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_pc_bddc_use_local_mat_graph",None)
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_ksp_type","chebyshev")
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_check_ksp_monitor",None)
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_check_ksp_converged_reason",None)
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_check_ksp_type","cg")
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_check_ksp_norm_type","natural")
+    opts.setValue("-emi_pc_bddc_coarse_l" + str(j) + "_pc_bddc_check_level", bddcdbg)
 
-# prevent to have a bad coarse solver
-opts.setValue("-test_pc_bddc_coarse_l3_redundant_pc_factor_mat_solver_package","mumps");
-opts.setValue("-test_pc_bddc_coarse_l2_redundant_pc_factor_mat_solver_package","mumps");
-opts.setValue("-test_pc_bddc_coarse_l1_redundant_pc_factor_mat_solver_package","mumps");
-opts.setValue("-test_pc_bddc_coarse_redundant_pc_factor_mat_solver_package","mumps")
+# prevent from having a bad coarse solver
+opts.setValue("-emi_pc_bddc_coarse_l3_redundant_pc_factor_mat_solver_type","mumps");
+opts.setValue("-emi_pc_bddc_coarse_l2_redundant_pc_factor_mat_solver_type","mumps");
+opts.setValue("-emi_pc_bddc_coarse_l1_redundant_pc_factor_mat_solver_type","mumps");
+opts.setValue("-emi_pc_bddc_coarse_redundant_pc_factor_mat_solver_type","mumps")
 
 ksp.setFromOptions()
 
@@ -195,9 +225,9 @@ ksp.setFromOptions()
 fem_ode_sync = int(emi_parameters['dt']/ode_parameters['dt'])
 # The EMI is solver for electric field, potential, transm. potential
 W = emi_pieces['W']
-wh = Function(W)  
+wh = Function(W)
 # The transmembrane potentials in ode solver are in
-P1 = ode_solver.VS.sub(0).collapse() 
+P1 = ode_solver.VS.sub(0).collapse()
 p_ode = Function(P1)
 # Meanwhile transmembrane potentials from DLT are in
 P0 = W.sub(2).collapse()
@@ -231,7 +261,7 @@ to_ODE_from_P1 = FunctionAssigner(ode_solver.VS.sub(0), P1)
 b_vec = b.vec()
 x_vec = as_backend_type(wh.vector()).vec()
 
-active_facets = np.array([e.index() for e in SubsetIterator(emi_pieces['surfaces'], 1)]) 
+active_facets = np.array([e.index() for e in SubsetIterator(emi_pieces['surfaces'], 1)])
 
 if pyMPI.COMM_WORLD.rank == 0:
     not os.path.exists('./results') and os.mkdir('./results')
@@ -251,10 +281,10 @@ with dlt_w as v_file:
 
             # The new rhs
             emi_assembler.assemble(b)
-      
+
             # New (sigma, u, p) ...
             info('\tSolving linear system of size %d' % A.size(0))
-        
+
             ksp.solve(b_vec, x_vec)
 
             # Update emi potential to standalone DLT function. To emi from wh(2)
